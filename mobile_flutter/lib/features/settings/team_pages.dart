@@ -386,7 +386,7 @@ class AboutPage extends StatelessWidget {
           Row2(
             title: t('Source code'),
             leading: RowIcon(AppIcon.globe),
-            onTap: () => launchUrl(Uri.parse('https://github.com/Fei2411/DS-Bot'), mode: LaunchMode.externalApplication),
+            onTap: () => launchUrl(Uri.parse('https://github.com/CikeSeven/DS-Bot'), mode: LaunchMode.externalApplication),
           ),
         ]),
       ],

@@ -391,7 +391,7 @@ class DemoLinkClient implements LinkClient {
         return {
           'mime': 'image/png',
           'data': 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
-          'url': 'https://github.com/fei2411/ds-bot',
+          'url': 'https://github.com/CikeSeven/DS-Bot',
           'title': 'DS Bot on GitHub',
         };
       case 'side-new':
