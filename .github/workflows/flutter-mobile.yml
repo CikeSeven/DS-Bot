@@ -1,0 +1,99 @@
+# The Flutter phone app (mobile_flutter/): analyze, test, and an APK signed with
+# this fork's own upload key. It runs beside the Expo app's jobs and changes none
+# of them. Secrets (all optional for a dry run, required for a release):
+#   FLUTTER_KEYSTORE_BASE64, FLUTTER_KEYSTORE_PASSWORD, FLUTTER_KEY_ALIAS
+name: Flutter phone app
+
+on:
+  pull_request:
+    paths: ['mobile_flutter/**', 'link/**', 'ds-bot/src/client/**', 'ds-bot/package.json', '.github/workflows/flutter-mobile.yml']
+  push:
+    branches: ['feat/flutter-mobile']
+    paths: ['mobile_flutter/**', 'link/**', 'ds-bot/src/client/**', 'ds-bot/package.json', '.github/workflows/flutter-mobile.yml']
+  workflow_dispatch:
+  release:
+    types: [published]
+
+permissions:
+  contents: write
+
+jobs:
+  app:
+    name: Analyze, test and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+        working-directory: mobile_flutter
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.5
+          cache: true
+      # The link tests run the Dart client against the real Relay Server in ../link.
+      - name: Install the phone link's packages
+        run: npm ci --no-fund --no-audit --prefix ../link
+      - name: Shared assets are in step with the desktop
+        run: |
+          node tool/sync_shared.mjs
+          git diff --exit-code -- assets/ test/fixtures/character_cases.json
+      - run: flutter pub get
+      - run: flutter analyze
+      - name: Every interface string has Chinese
+        run: test "$(node tool/check_zh.mjs 2>/dev/null | wc -l)" = 0
+      - run: flutter test --exclude-tags screenshot
+      - name: Build the APK
+        env:
+          KEYSTORE_BASE64: ${{ secrets.FLUTTER_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.FLUTTER_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.FLUTTER_KEY_ALIAS }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
+            export DSBOT_ANDROID_KEYSTORE="$RUNNER_TEMP/upload.jks" DSBOT_ANDROID_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" DSBOT_ANDROID_KEY_ALIAS="$KEY_ALIAS"
+          elif [ "$GITHUB_EVENT_NAME" = release ]; then
+            echo "::error::The FLUTTER_KEYSTORE_BASE64 secret is missing, so the APK cannot be signed for release."
+            exit 1
+          else
+            echo "::warning::No upload key: this build signs the APK with the debug key."
+          fi
+          flutter build apk --release
+          rm -f "$RUNNER_TEMP/upload.jks"
+          version="$(node -p "require('../ds-bot/package.json').version")"
+          mkdir -p dist
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/DS-Bot-$version-android-flutter.apk"
+      - name: Check the signature
+        run: |
+          apksigner="$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)/apksigner"
+          certs="$("$apksigner" verify --min-sdk-version 21 --verbose --print-certs dist/DS-Bot-*-android-flutter.apk)"
+          echo "$certs" | grep -E '(^Verified using v[123] |certificate (DN|SHA-256 digest):)'
+          for scheme in 'v1 scheme (JAR signing): true' 'v2 scheme (APK Signature Scheme v2): true' 'v3 scheme (APK Signature Scheme v3): true'; do
+            echo "$certs" | grep -Fq "Verified using $scheme" || { echo "::error::The APK is missing signature $scheme."; exit 1; }
+          done
+          if [ "$GITHUB_EVENT_NAME" = release ] && echo "$certs" | grep -q 'CN=Android Debug'; then
+            echo "::error::The APK is signed with the debug key."
+            exit 1
+          fi
+      - name: Keep the APK
+        if: github.event_name != 'release'
+        uses: actions/upload-artifact@v4
+        with:
+          name: DS-Bot-android-flutter
+          path: mobile_flutter/dist/*.apk
+          retention-days: 7
+          compression-level: 0
+      - name: Attach the APK to the release
+        if: github.event_name == 'release'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "${{ github.event.release.tag_name }}" dist/DS-Bot-*-android-flutter.apk --clobber

@@ -138,9 +138,23 @@ MIT License, Copyright (c) 2026 DSH Remote contributors
     packages/plugin/src/server-connection.ts (reconnect, connect.incoming,
     the responder handshake, Relay sends), written again for DS Bot.
   - mobile/src/polyfills.ts copies apps/android/src/polyfills.ts.
+  - mobile_flutter/lib/link/ is a Dart port of the link/src files above
+    (keys, noise, frames, transport, relay-transport, secure-transport,
+    rpc-client), so it carries the same DSH Remote origin. Its Noise core is
+    written out from the Noise Protocol Framework specification instead of
+    the clatterjs package link/src uses.
 
   Full license text: the same MIT terms as printed under DeepSeek Harness
   above, with the copyright line of DSH Remote.
+
+Deep View (https://github.com/Fei2411/deep-view)
+Apache License, Version 2.0, Copyright 2026 Fei2411
+
+  - mobile_flutter/lib/shared/deep_view.dart is a Dart port of
+    src/core/formula.js and parts of src/core/views.js and src/core/reply.js
+    of deep-view 0.1.2: the formula language, the view scope, the answer
+    check and the answer's one-line text. The phone app's tests compare it
+    with cases generated from the JavaScript package.
 
 dsh-im (https://github.com/xmanrui/dsh-im)
 MIT License, Copyright (c) 2026 xmanrui
