@@ -607,8 +607,8 @@ export function About({ navigation }: any) {
           <Row label={t('Computer')} value={computer?.name ?? '—'} />
         </Section>
         <Section label={t('Licenses')}>
-          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot/blob/main/LICENSE')} />
-          <Row label={t('Repository')} hint="github.com/Fei2411/DS-Bot" onPress={() => void Linking.openURL('https://github.com/Fei2411/DS-Bot')} />
+          <Row label={t('DS Bot')} hint={t('Apache License 2.0')} onPress={() => void Linking.openURL('https://github.com/CikeSeven/DS-Bot/blob/main/LICENSE')} />
+          <Row label={t('Repository')} hint="github.com/CikeSeven/DS-Bot" onPress={() => void Linking.openURL('https://github.com/CikeSeven/DS-Bot')} />
         </Section>
       </ScrollView>
     </Screen>

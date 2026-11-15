@@ -452,7 +452,7 @@ jobs:
       - run: docker build -f docker/Dockerfile.dev -t ds-bot:dev-test .
       - run: node docker/test-dev.mjs ds-bot:dev-test ds-bot:test
       - name: Publish the tested image
-        if: github.event_name == 'push' && github.repository == 'Fei2411/DS-Bot'
+        if: github.event_name == 'push' && github.repository == 'CikeSeven/DS-Bot'
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GHCR_ACTOR: ${{ github.actor }}
