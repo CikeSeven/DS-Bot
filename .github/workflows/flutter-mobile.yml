@@ -8,7 +8,7 @@ on:
   pull_request:
     paths: ['mobile_flutter/**', 'link/**', 'ds-bot/src/client/**', 'ds-bot/package.json', '.github/workflows/flutter-mobile.yml']
   push:
-    branches: ['feat/flutter-mobile']
+    branches: [main, 'feat/flutter-mobile']
     paths: ['mobile_flutter/**', 'link/**', 'ds-bot/src/client/**', 'ds-bot/package.json', '.github/workflows/flutter-mobile.yml']
   workflow_dispatch:
   release:
