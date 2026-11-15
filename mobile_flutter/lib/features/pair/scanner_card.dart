@@ -27,6 +27,7 @@ class ScannerCard extends StatelessWidget {
     required this.onOpenCamera,
     required this.onCloseCamera,
     required this.onDetect,
+    this.compact = false,
     this.locked = false,
     this.connectedName = '',
     this.appear,
@@ -38,6 +39,10 @@ class ScannerCard extends StatelessWidget {
   final VoidCallback onOpenCamera;
   final VoidCallback onCloseCamera;
   final ValueChanged<String> onDetect;
+
+  /// Shrunk above the keyboard: the idle card drops its button, which would
+  /// sit on top of the code at that size.
+  final bool compact;
 
   /// A pairing code was read: the camera frame locks on.
   final bool locked;
@@ -57,7 +62,7 @@ class ScannerCard extends StatelessWidget {
         child: ScaleTransition(scale: Tween(begin: 0.9, end: 1.0).animate(animation), child: child),
       ),
       child: switch (stage) {
-        ScanStage.idle => _Idle(key: const ValueKey('idle'), onTap: onOpenCamera),
+        ScanStage.idle => _Idle(key: const ValueKey('idle'), onTap: onOpenCamera, compact: compact),
         ScanStage.camera => _Camera(key: const ValueKey('camera'), scanner: scanner, onClose: onCloseCamera, onDetect: onDetect, locked: locked),
         ScanStage.connecting => const _Handshake(key: ValueKey('connecting')),
         ScanStage.success => _Success(key: const ValueKey('success'), name: connectedName),
@@ -79,16 +84,18 @@ void _loop(BuildContext context, AnimationController controller, {bool reverse =
 // --- Idle: a stylized code with light rippling across it ---------------------
 
 class _Idle extends StatefulWidget {
-  const _Idle({super.key, required this.onTap});
+  const _Idle({super.key, required this.onTap, this.compact = false});
 
   final VoidCallback onTap;
+  final bool compact;
 
   @override
   State<_Idle> createState() => _IdleState();
 }
 
-class _IdleState extends State<_Idle> with SingleTickerProviderStateMixin {
+class _IdleState extends State<_Idle> with TickerProviderStateMixin {
   late final _wave = AnimationController(vsync: this, duration: const Duration(milliseconds: 3200));
+  late final _button = AnimationController(vsync: this, duration: const Duration(milliseconds: 200), value: widget.compact ? 0 : 1);
 
   @override
   void didChangeDependencies() {
@@ -97,8 +104,15 @@ class _IdleState extends State<_Idle> with SingleTickerProviderStateMixin {
   }
 
   @override
+  void didUpdateWidget(_Idle old) {
+    super.didUpdateWidget(old);
+    if (widget.compact != old.compact) _button.animateTo(widget.compact ? 0 : 1, curve: Curves.easeOut);
+  }
+
+  @override
   void dispose() {
     _wave.dispose();
+    _button.dispose();
     super.dispose();
   }
 
@@ -111,8 +125,10 @@ class _IdleState extends State<_Idle> with SingleTickerProviderStateMixin {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          Align(
-            alignment: const Alignment(0, -0.3),
+          AnimatedAlign(
+            alignment: widget.compact ? Alignment.center : const Alignment(0, -0.3),
+            duration: const Duration(milliseconds: 320),
+            curve: Curves.easeOutCubic,
             child: FractionallySizedBox(
               widthFactor: 0.46,
               heightFactor: 0.46,
@@ -122,7 +138,13 @@ class _IdleState extends State<_Idle> with SingleTickerProviderStateMixin {
           RepaintBoundary(child: CustomPaint(painter: _BracketsPainter(color: p.accent, inset: 0.08, breath: _wave))),
           Align(
             alignment: const Alignment(0, 0.66),
-            child: HighlightGlassButton(label: t('Scan QR code'), icon: AppIcon.camera, height: 48, frosted: false, expand: false, onTap: widget.onTap),
+            child: IgnorePointer(
+              ignoring: widget.compact,
+              child: ExcludeSemantics(
+                excluding: widget.compact,
+                child: HighlightGlassButton(label: t('Scan QR code'), icon: null, height: 48, frosted: false, expand: false, appear: _button, onTap: widget.onTap),
+              ),
+            ),
           ),
         ],
       ),

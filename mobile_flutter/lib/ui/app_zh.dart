@@ -280,4 +280,21 @@ const appZh = <String, String>{
   'Turn on “Phone access”, then choose “Show” next to “Show a QR code”.': '打开「手机访问」，再点「显示二维码」旁边的「查看」。',
   'Scan the code with the camera here. After that the phone connects by itself.': '用这里的相机扫码。之后手机会自己连上电脑。',
   'The system camera can scan it too; the code opens this app.': '用系统相机扫也可以，扫完会直接打开这个 App。',
+  // Why a pairing link or the handshake after it failed (link/src/pairing.ts
+  // and the secure transport word them).
+  'This is not a DS Bot pairing code.': '这不是 DS Bot 的配对链接。',
+  'The pairing code has no server.': '配对链接不完整，请在电脑上重新复制。',
+  'The pairing code has no host.': '配对链接不完整，请在电脑上重新复制。',
+  'The pairing code has no key.': '配对链接不完整，请在电脑上重新复制。',
+  'The pairing code has no code.': '配对链接不完整，请在电脑上重新复制。',
+  'The pairing code names an invalid Server.': '配对链接里的服务器地址无效。',
+  'The pairing code does not match its computer.': '配对链接和电脑的身份对不上，请在电脑上重新复制。',
+  'The pairing code is invalid.': '配对码无效。',
+  'The Server connected this phone to a different device.': '服务器把这台手机连到了另一台设备上。',
+  'The secure handshake timed out.': '加密握手超时，请确认电脑上的 DS Bot 已打开。',
+  'The secure handshake arrived out of order.': '加密握手的顺序乱了，请重试。',
+  'The secure handshake did not complete.': '加密握手没有完成，请重试。',
+  'The link closed during the secure handshake.': '加密握手时连接断开了，请重试。',
+  'The secure channel is not connected.': '加密通道还没有连上。',
+  'The computer refused the call.': '电脑拒绝了这次请求。',
 };

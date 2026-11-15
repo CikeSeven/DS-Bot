@@ -261,6 +261,7 @@ class _PairPageState extends State<PairPage> with SingleTickerProviderStateMixin
                                   onOpenCamera: _openCamera,
                                   onCloseCamera: _closeCamera,
                                   onDetect: _detected,
+                                  compact: keyboard,
                                   locked: _locked,
                                   connectedName: _connected,
                                   appear: _cardIn,
@@ -371,7 +372,7 @@ class _PairPageState extends State<PairPage> with SingleTickerProviderStateMixin
           },
         ),
         const SizedBox(height: 12),
-        HighlightGlassButton(label: t('Connect'), height: 52, busy: _busy, onTap: () => _pair(_link.text)),
+        HighlightGlassButton(label: t('Connect'), icon: null, height: 52, busy: _busy, onTap: () => _pair(_link.text)),
       ],
     );
   }

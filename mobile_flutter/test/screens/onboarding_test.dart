@@ -147,6 +147,20 @@ void main() {
     await _end(tester, state);
   });
 
+  testWidgets('the refusal reads in Chinese when the app is in Chinese', (tester) async {
+    final state = await _load(tester, kv: {'dsbot.prefs': '{"welcomed":"on","lang":"zh"}'});
+    addTearDown(() => I18n.pref = LangPref.system);
+    await _pump(tester, state);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('输入链接'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(EditableText), 'https://example.com');
+    await tester.tap(find.text('连接'));
+    await tester.pumpAndSettle();
+    expect(find.text('这不是 DS Bot 的配对链接。'), findsOneWidget);
+    await _end(tester, state);
+  });
+
   testWidgets('pairing plays the connected check before the computer is saved', (tester) async {
     var opened = 0;
     final state = await _load(tester, kv: _welcomed, pair: (candidate, identity, code) async {
