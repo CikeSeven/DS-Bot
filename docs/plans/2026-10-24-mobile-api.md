@@ -119,3 +119,12 @@ New clients request one chunk at a time. Android and iOS write each chunk throug
 Expo file handle before requesting the next; the browser collects Blob parts. There
 is no total-file limit for chunk clients. Older clients that omit `offset` retain
 the existing whole-file response and its 16 MiB compatibility limit.
+
+## 手机补充接口（2026-11-15）
+
+这四个接口只加不改，写进 `capabilities`，旧客户端不受影响：
+
+- `file-upload`：`stage-file { name, size, offset, uploadId?, data }` 分块上传一个文件（每块最多 768 KiB 的 base64，整个文件最多 32 MiB，在内存里拼好后存进附件服务），最后一块返回 `{ id, done: true }`。`send` 多一个 `files: [id]`。DSH 的 `prompt` 只接受浏览器上传的回执，所以带文件的消息按 Bot 之间传文件的方式（`delivery.js`）以附件引用排进队列。照片和文件要分两条消息发。
+- `message-search`：`{ botId, query }` 在这个 Bot 自己的聊天（所有分段）里按词搜索，返回 `{ results: [{ sessionId, seq, time, role: 'user'|'bot', text }] }`，最新的在前，最多 20 条。复用 `read_own_chat` 的聊天索引。
+- `step-detail`：`{ sessionId, turn, index }` 返回这一轮步骤行里第 `index` 个工具调用的 `{ name, arguments, output, ok?, done, truncated }`，参数和输出各截到 8000 字。
+- `thinking-text`：`thinking` 多一个 `text: true`，同时返回这一轮的思考内容 `{ ms, text, truncated? }`，最多 20000 字。

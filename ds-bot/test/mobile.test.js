@@ -751,3 +751,93 @@ test('switching to an earlier part closes open question and view cards instead o
   assert.deepEqual(after.questions, {})
   assert.deepEqual(after.views, {})
 })
+
+test('a phone uploads a file in chunks and send puts it in a user message', async () => {
+  const { ctx, call, sent, stop } = start()
+  const { chief } = await team(call)
+  assert.equal((await call('hello', {})).value.capabilities.includes('file-upload'), true)
+  const bytes = randomBytes(1500)
+  const first = (await call('stage-file', { name: 'notes.pdf', size: bytes.length, offset: 0, data: bytes.subarray(0, 1000).toString('base64') })).value
+  assert.equal(first.done, false)
+  assert.equal(first.nextOffset, 1000)
+  // A chunk that does not continue where the last one stopped is refused.
+  assert.equal((await call('stage-file', { name: 'notes.pdf', size: bytes.length, offset: 400, uploadId: first.uploadId, data: bytes.subarray(400).toString('base64') })).error.code, 'bot/stale')
+  const last = (await call('stage-file', { name: 'notes.pdf', size: bytes.length, offset: 1000, uploadId: first.uploadId, data: bytes.subarray(1000).toString('base64') })).value
+  assert.equal(last.done, true)
+  assert.equal(last.bytes, bytes.length)
+  const pixel = Buffer.from('ffd8ffe000104a464946', 'hex').toString('base64')
+  const photo = (await call('stage-image', { mediaType: 'image/jpeg', data: pixel })).value.id
+  assert.equal((await call('send', { sessionId: chief, text: 'x', images: [photo], files: [last.id] })).error.code, 'bot/invalid')
+  const before = sent.length
+  assert.equal((await call('send', { sessionId: chief, text: 'read this', files: [last.id] })).value, true)
+  const message = sent.slice(before).find(entry => entry.message !== undefined).message
+  assert.equal(message.source.kind, 'user')
+  assert.equal(message.content[0].text, 'read this')
+  const file = message.content.find(part => part.type === 'file')
+  assert.equal(file.attachment.name, 'notes.pdf')
+  assert.deepEqual(Buffer.from(ctx.get('attachments').files.get(file.attachment.attachmentId)), bytes)
+  // A file goes once.
+  assert.equal((await call('send', { sessionId: chief, text: '', files: [last.id] })).error.code, 'bot/stale')
+  assert.equal((await call('stage-file', { name: 'big.bin', size: 64 * 1024 * 1024, offset: 0, data: '' })).error.code, 'bot/refused')
+  await stop()
+})
+
+test('step-detail gives one tool call of a turn with its arguments and output', async () => {
+  const { call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  history[sessionId] = [
+    { seq: 1, time: 1, type: 'turn/start', data: { turn: 1 } },
+    user(2, 'list the files'),
+    { seq: 3, time: 3, type: 'tool/call', data: { callId: 'c1', name: 'ask_user', arguments: '{}' } },
+    { seq: 4, time: 4, type: 'tool/call', data: { callId: 'c2', name: 'run_shell_command', arguments: '{"command":"ls"}' } },
+    { seq: 5, time: 5, type: 'tool/result', data: { message: { role: 'tool', toolCallId: 'c2', ok: true, content: [{ type: 'text', text: 'a.txt\nb.txt' }] } } },
+    { seq: 6, time: 6, type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } },
+  ]
+  assert.equal((await call('hello', {})).value.capabilities.includes('step-detail'), true)
+  const detail = (await call('step-detail', { sessionId, turn: 1, index: 0 })).value
+  assert.equal(detail.name, 'run_shell_command')
+  assert.equal(detail.arguments, '{\n  "command": "ls"\n}')
+  assert.equal(detail.output, 'a.txt\nb.txt')
+  assert.equal(detail.ok, true)
+  assert.equal(detail.done, true)
+  assert.equal((await call('step-detail', { sessionId, turn: 1, index: 1 })).error.code, 'bot/not-found')
+  assert.equal((await call('step-detail', { sessionId: 'nope', turn: 1, index: 0 })).error.code, 'bot/not-found')
+  await stop()
+})
+
+test('thinking with text sends what the model thought in a turn', async () => {
+  const { call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  history[sessionId] = [
+    { seq: 1, time: 1, type: 'turn/start', data: { turn: 1 } },
+    { seq: 2, time: 2, type: 'assistant/message', data: { turn: 1, stream: [{ type: 'reasoning-chunks', texts: ['Let me ', 'check.'], time0: 1000, dt: [0, 1500] }], message: { content: [{ type: 'text', text: 'Done' }] } } },
+    { seq: 3, time: 3, type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } },
+  ]
+  assert.deepEqual((await call('thinking', { sessionId, turn: 1 })).value, { ms: 1500 })
+  assert.deepEqual((await call('thinking', { sessionId, turn: 1, text: true })).value, { ms: 1500, text: 'Let me check.' })
+  await stop()
+})
+
+test('message-search finds a Bot chat line with all the words, newest first', async () => {
+  const { call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  // The chat index reads a part from its first event, seq 0.
+  history[sessionId] = [
+    { seq: 0, time: 100, type: 'turn/start', data: { turn: 1 } },
+    user(1, 'please deploy the site', 200),
+    { seq: 2, time: 300, type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: 'The site deploy is done' }] } } },
+    { seq: 3, time: 400, type: 'turn/end', data: { turn: 1, reason: { kind: 'stop' } } },
+    { seq: 4, time: 500, type: 'turn/start', data: { turn: 2 } },
+    user(5, 'what about the docs', 600),
+  ]
+  assert.equal((await call('hello', {})).value.capabilities.includes('message-search'), true)
+  const { results } = (await call('message-search', { botId: chief, query: 'site deploy' })).value
+  assert.deepEqual(results.map(row => [row.role, row.text]), [['bot', 'The site deploy is done'], ['user', 'please deploy the site']])
+  assert.equal(results[0].sessionId, sessionId)
+  assert.deepEqual((await call('message-search', { botId: chief, query: '' })).value.results, [])
+  assert.equal((await call('message-search', { botId: 'nobody', query: 'x' })).error.code, 'bot/not-found')
+  await stop()
+})

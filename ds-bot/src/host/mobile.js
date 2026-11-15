@@ -46,6 +46,10 @@ export const CAPABILITIES = [
   'file-download',
   'file-download-chunks',
   'write-state',
+  'file-upload',
+  'message-search',
+  'step-detail',
+  'thinking-text',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
 
@@ -532,8 +536,61 @@ export function install(rt) {
     throw unavailable()
   }
 
+  // Messages of one Bot's own chat, every part, with all the words: newest first.
+  const SEARCH_TEXT_MAX = 2000
+  async function messageSearch(body) {
+    const bot = rt.botOf(String(body.botId ?? ''))
+    if (bot === undefined) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
+    const query = String(body.query ?? '').slice(0, 200)
+    const rows = await rt.findOwnChat(bot.id, query)
+    return { results: rows.map(row => ({ ...row, text: row.text.length > SEARCH_TEXT_MAX ? `${row.text.slice(0, SEARCH_TEXT_MAX)}…` : row.text })) }
+  }
+
+  // One tool call of a Turn, by its place in the Turn's steps row: what it was
+  // called with and what it gave back, each cut at STEP_PART_MAX.
+  const STEP_PART_MAX = 8000
+  const HIDDEN_STEPS = new Set(['ask_user', 'request_secret', 'group_relay'])
+  const cut = text => (text.length > STEP_PART_MAX ? { text: text.slice(0, STEP_PART_MAX), truncated: true } : { text, truncated: false })
+  async function stepDetail(body) {
+    const sessionId = String(body.sessionId ?? '')
+    const turn = Number(body.turn)
+    const index = Number(body.index)
+    if (rt.selfOf(sessionId) === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    if (!Number.isInteger(turn) || !Number.isInteger(index) || index < 0) throw Object.assign(new Error('Name a turn and a step'), { code: 'bot/invalid' })
+    const events = []
+    for await (const event of rt.eventsBackwards(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) {
+      events.push(event)
+      if (event.type === 'turn/start' && event.data?.turn === turn) break
+    }
+    events.reverse()
+    let current
+    const calls = []
+    for (const event of events) {
+      if (event.type === 'turn/start') current = event.data?.turn
+      else if (current === turn && event.type === 'tool/call' && typeof event.data?.name === 'string' && !HIDDEN_STEPS.has(event.data.name)) calls.push(event)
+    }
+    const call = calls[index]
+    if (call === undefined) throw Object.assign(new Error('That step is no longer there'), { code: 'bot/not-found' })
+    const result = events.find(event => event.type === 'tool/result' && event.data?.message?.toolCallId === call.data.callId)
+    const args = typeof call.data.arguments === 'string' ? call.data.arguments : JSON.stringify(call.data.arguments ?? {})
+    let pretty = args
+    try { pretty = JSON.stringify(JSON.parse(args), null, 2) } catch { /* not JSON: shown as sent */ }
+    const input = cut(pretty)
+    const output = cut(result === undefined ? '' : textOf(result.data.message.content))
+    return {
+      name: call.data.name,
+      arguments: input.text,
+      output: output.text,
+      ...(typeof result?.data?.message?.ok === 'boolean' ? { ok: result.data.message.ok } : {}),
+      done: result !== undefined,
+      truncated: input.truncated || output.truncated,
+    }
+  }
+
   async function mobileEndpoint(endpoint, body) {
     switch (endpoint) {
+      case 'message-search': return messageSearch(body)
+      case 'step-detail': return stepDetail(body)
       case 'hello': return hello(body)
       case 'notices': return notices(body)
       case 'avatar': return avatar(body)

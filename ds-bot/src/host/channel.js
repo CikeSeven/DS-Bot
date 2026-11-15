@@ -9,6 +9,10 @@ import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
 const STAGED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif'])
 const STAGED_MS = 30 * 60_000
+// A phone's file arrives in chunks of at most this much base64, and whole files up
+// to FILE_STAGED_MAX, held in memory until the file is complete.
+const FILE_CHUNK_MAX = 768 * 1024
+const FILE_STAGED_MAX = 32 * 1024 * 1024
 
 const LANGUAGES = {
   zh: 'Chinese (简体中文)',
@@ -54,6 +58,10 @@ export function install(rt) {
 
   // Photos staged by `stage-image`, kept until the message that names them is sent.
   const staged = new Map()
+  // Files a phone is uploading (uploadId → parts so far) and the ones it finished
+  // (id → attachment ref), each kept STAGED_MS for the `send` that names it.
+  const uploads = new Map()
+  const stagedFiles = new Map()
   const ok = value => ({ ok: true, value })
   const fail = (message, code = 'bot/error') => ({ ok: false, error: { code, message, details: {} } })
   // Models come from DSH, not state.json, so a provider added on the Models pages of Settings
@@ -175,7 +183,7 @@ export function install(rt) {
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
-  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'file-download', 'changes-check', 'changes-summary', 'changes-diff'])
+  const READS = new Set(['secret-store', 'secret-unlock', 'state', 'models', 'efforts', 'providers', 'provider-models', 'earlier', 'chat', 'run-stats', 'room-progress', 'group-rows', 'exchange', 'exchange-text', 'file-text', 'usage', 'schedules', 'memory-view', 'browser-wait', 'browser-result', 'diagnostics', 'diagnostics-log', 'diagnostics-clear', 'update-check', 'update-install', 'dsh-update-install', 'repo-stars', 'approval-answer', 'thinking', 'avatar-library', 'computer-system-status', 'computer-shot', 'local-agents', 'local-agent-models', 'browser-frame', 'hello', 'notices', 'avatar', 'room-chat', 'usage-summary', 'image', 'file-download', 'changes-check', 'changes-summary', 'changes-diff', 'message-search', 'step-detail'])
 
   async function setPrefs(body) {
     if (body.theme !== undefined) {
@@ -275,7 +283,9 @@ export function install(rt) {
           if (!Number.isFinite(turn) || rt.selfOf(sessionId) === undefined) return ok(null)
           await rt.load()
           const ms = await rt.thinkingOf(sessionId, turn)
-          return ok(ms === undefined ? {} : { ms })
+          // `text: true` also sends what the model thought, for a phone's steps row.
+          const text = body.text === true ? await rt.thinkingTextOf(sessionId, turn) : undefined
+          return ok({ ...(ms === undefined ? {} : { ms }), ...(text === undefined ? {} : text) })
         }
         // Model providers and their keys, for a window without DSH's own Models page.
         case 'providers':
@@ -641,6 +651,8 @@ export function install(rt) {
         case 'usage-summary':
         case 'memory-edit':
         case 'memory-add':
+        case 'message-search':
+        case 'step-detail':
           await rt.load()
           return ok(await rt.mobileEndpoint(endpoint, body))
         case 'answer-question': {
@@ -685,13 +697,51 @@ export function install(rt) {
           staged.set(id, { mediaType, data, at: now })
           return ok({ id })
         }
+        // A file for the next `send`, in chunks: each call carries the next bytes at
+        // `offset`; the last one stores the file and answers with its id.
+        case 'stage-file': {
+          const attachments = ctx.get?.('attachments')
+          if (attachments?.saveFile === undefined) return fail('This DSH cannot keep files', 'bot/refused')
+          const size = Number(body.size)
+          const offset = Number(body.offset ?? 0)
+          const data = typeof body.data === 'string' ? body.data : ''
+          if (!Number.isSafeInteger(size) || size <= 0 || size > FILE_STAGED_MAX) return fail('This file is too large to send from the phone (over 32 MB)', 'bot/refused')
+          if (!Number.isSafeInteger(offset) || offset < 0 || data.length > FILE_CHUNK_MAX || !/^[A-Za-z0-9+/]*={0,2}$/.test(data)) return fail('This is not a file chunk DS Bot can take', 'bot/invalid')
+          const now = Date.now()
+          for (const [id, entry] of uploads) if (entry.at < now - STAGED_MS) uploads.delete(id)
+          for (const [id, entry] of stagedFiles) if (entry.at < now - STAGED_MS) stagedFiles.delete(id)
+          const uploadId = typeof body.uploadId === 'string' && body.uploadId !== '' ? body.uploadId : randomUUID()
+          const upload = uploads.get(uploadId) ?? { name: String(body.name ?? 'file').slice(0, 200), size, parts: [], received: 0, at: now }
+          if (upload.size !== size || offset !== upload.received) return fail('The file arrived out of order. Send it again.', 'bot/stale')
+          const bytes = Buffer.from(data, 'base64')
+          if (upload.received + bytes.length > size) return fail('The file is longer than it said', 'bot/invalid')
+          upload.parts.push(bytes)
+          upload.received += bytes.length
+          upload.at = now
+          uploads.set(uploadId, upload)
+          if (upload.received < size) return ok({ uploadId, nextOffset: upload.received, done: false })
+          uploads.delete(uploadId)
+          const ref = await attachments.saveFile({ data: new Uint8Array(Buffer.concat(upload.parts)), name: upload.name })
+          const id = randomUUID()
+          stagedFiles.set(id, { ref, at: now })
+          return ok({ uploadId, id, nextOffset: size, done: true, name: ref.name, bytes: ref.bytes })
+        }
         case 'send': {
           const text = String(body.text ?? '').trim()
           const ids = Array.isArray(body.images) ? body.images.map(String) : []
-          if ((text === '' && ids.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          const fileIds = Array.isArray(body.files) ? body.files.map(String) : []
+          if ((text === '' && ids.length === 0 && fileIds.length === 0) || typeof body.sessionId !== 'string') return fail('Nothing to send', 'bot/invalid')
+          if (ids.length > 0 && fileIds.length > 0) return fail('Send photos and files in separate messages', 'bot/invalid')
           const images = ids.map(id => staged.get(id))
           if (images.some(entry => entry === undefined)) return fail('A photo did not arrive. Send it again.', 'bot/stale')
+          const files = fileIds.map(id => stagedFiles.get(id))
+          if (files.some(entry => entry === undefined)) return fail('A file did not arrive. Send it again.', 'bot/stale')
           await rt.load()
+          if (files.length > 0) {
+            await rt.sendUserFiles({ sessionId: body.sessionId, text, files: files.map(entry => entry.ref) })
+            for (const id of fileIds) stagedFiles.delete(id)
+            return ok(true)
+          }
           await rt.sendUser({
             sessionId: body.sessionId,
             content: [
@@ -876,13 +926,18 @@ export function install(rt) {
   // How a user message reaches a Session: a Bot id, a group chat's id, or an earlier
   // part of either resolves to its current part. `content` is the prompt blocks DSH
   // takes (text, image, file receipts); `requestId` lands on the message's source.
-  async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
+  // A Bot id, a group id or an earlier part means the current Session it names.
+  function currentSession(ref) {
     const past = rt.pastOwners.get(ref)
     const room = rt.roomOf(ref)
-    const sessionId = rt.botOf(ref) ? rt.chatOf(ref)
+    return rt.botOf(ref) ? rt.chatOf(ref)
       : room !== undefined ? rt.sessionOfRoom(room)
         : past?.roomId === undefined && past !== undefined ? rt.chatOf(past.botId)
           : past !== undefined ? rt.sessionOfRoom(rt.roomOf(past.roomId)) : ref
+  }
+
+  async function sendUser({ sessionId: ref, content, requestId = randomUUID() }) {
+    const sessionId = currentSession(ref)
     await rt.ensureCapabilities(sessionId)
     await ctx.sessionController.prompt({
       requestId,
@@ -890,6 +945,23 @@ export function install(rt) {
       mode: 'queue',
       content,
     }, AbortSignal.timeout(30_000))
+  }
+
+  // A user message with files a phone uploaded. DSH's prompt takes files only as
+  // receipts of a browser upload, so the message goes in the way Bots hand each other
+  // files (delivery.js): the stored attachment refs on a queued user message.
+  async function sendUserFiles({ sessionId: ref, text, files }) {
+    const sessionId = currentSession(ref)
+    await rt.ensureCapabilities(sessionId)
+    const agent = await rt.resolveAgent(sessionId)
+    agent.followup(createUserMessage({
+      content: [
+        ...(text === '' ? [] : [{ type: 'text', text }]),
+        ...files.map(attachment => ({ type: 'file', attachment })),
+      ],
+      source: { kind: 'user', rpcId: randomUUID() },
+    }))
+    await ctx.sessions.flush(agent.session)
   }
 
   // The user's answer to an ask_user card, from the web or an IM chat. A Bot id or an
@@ -916,7 +988,7 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { sendUser, answerQuestion })
+  Object.assign(rt, { sendUser, sendUserFiles, answerQuestion })
 
   // An exact Fetch route on the shared /api channel; the browser authenticates with its session cookie.
   ctx.effect(() => ctx.connection.fetch.register({

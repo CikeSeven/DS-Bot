@@ -32,6 +32,21 @@ const streamReasoningMs = (stream) => {
   return first === undefined ? undefined : last - first
 }
 
+// What the model thought in one Turn, step by step, cut at THINKING_TEXT_MAX.
+const THINKING_TEXT_MAX = 20_000
+
+export function thinkingText(events, turn) {
+  const steps = []
+  for (const event of events) {
+    if (event.type !== 'assistant/message' || event.data.turn !== turn) continue
+    const text = (event.data.stream ?? []).filter(record => record.type === 'reasoning-chunks').map(record => record.texts.join('')).join('')
+    if (text.trim() !== '') steps.push(text.trim())
+  }
+  if (steps.length === 0) return undefined
+  const whole = steps.join('\n\n')
+  return whole.length > THINKING_TEXT_MAX ? { text: whole.slice(0, THINKING_TEXT_MAX), truncated: true } : { text: whole }
+}
+
 export function install(rt) {
   // A closed turn's events do not change; cache its answer once turn/end exists.
   const settled = new Map()
@@ -51,5 +66,13 @@ export function install(rt) {
       }
     }
     return settled.has(key) ? settled.get(key) : thinkingMs(events, turn)
+  }
+  rt.thinkingTextOf = async (sessionId, turn) => {
+    const events = []
+    for await (const event of rt.eventsBackwards(sessionId, AbortSignal.timeout(HISTORY_TIMEOUT_MS))) {
+      events.push(event)
+      if (typeof event.data?.turn === 'number' && event.data.turn < turn) break
+    }
+    return thinkingText(events, turn)
   }
 }

@@ -231,6 +231,31 @@ export function install(rt) {
     return { lines: rows.sort(byTime).map(row => rowLine(parts, row, terms)), every }
   }
 
+  // Messages with all the words, newest first, as rows a window can list: the part's
+  // Session, seq, time, who wrote it and the whole text.
+  async function findOwnChat(botId, query, { limit = OWN_CHAT_SEARCH } = {}) {
+    const terms = [...new Set(String(query ?? '').toLowerCase().split(/\s+/).filter(Boolean))].slice(0, SEARCH_TERMS_MAX)
+    if (terms.length === 0) return []
+    const { index, parts } = await indexedParts(botId)
+    if (index === null) {
+      const rows = []
+      const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
+      for (const part of [...parts].reverse()) {
+        for await (const line of rt.partLines(part.sessionId, signal)) {
+          const lower = line.text.toLowerCase()
+          // partLines marks the user's lines for the model; a window shows the words.
+          const text = line.who === 'user' ? line.text.replace(/^User: /, '') : line.text
+          if (terms.every(term => lower.includes(term))) rows.push({ session: part.sessionId, seq: line.seq, time: line.time, who: line.who, text })
+        }
+        if (rows.length >= limit) break
+      }
+      return rows.sort((a, b) => b.time - a.time).slice(0, limit).map(searchRow)
+    }
+    const { sql, args } = termQuery(terms, parts.map(part => part.sessionId), limit)
+    return index.db.prepare(sql).all(...args).sort((a, b) => b.time - a.time).map(searchRow)
+  }
+  const searchRow = row => ({ sessionId: row.session, seq: row.seq, time: row.time, role: row.who === 'user' ? 'user' : 'bot', text: row.text })
+
   // The latest messages across all parts, oldest first.
   async function latestOwnChat(botId, { askingId, limit = OWN_CHAT_READ } = {}) {
     const { index, parts, hidden } = await indexedParts(botId, askingId)
@@ -289,5 +314,5 @@ export function install(rt) {
     ].join('\n')
   }
 
-  Object.assign(rt, { eventsBackwards, searchOwnChat, latestOwnChat, aroundOwnChat, partIndex, ownChatBrief })
+  Object.assign(rt, { eventsBackwards, searchOwnChat, findOwnChat, latestOwnChat, aroundOwnChat, partIndex, ownChatBrief })
 }
