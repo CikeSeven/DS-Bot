@@ -4,7 +4,7 @@
 import 'json.dart';
 import 'team_state.dart';
 
-enum PendingKind { question, approval, secret, handoff, view }
+enum PendingKind { question, approval, secret, handoff, view, learning, connector, mail }
 
 class PendingItem {
   const PendingItem({
@@ -82,6 +82,32 @@ List<PendingItem> pendingItemsOf(TeamState? team) {
       summary: jStr(view, 'title'),
       data: view,
     ));
+  }
+  for (final entry in team.learning.entries) {
+    if (team.bot(entry.key) == null || entry.value is! List) continue;
+    for (final proposal in (entry.value as List).whereType<Map>().map(asJson)) {
+      items.add(PendingItem(
+        kind: PendingKind.learning,
+        key: 'l-${proposal['id']}',
+        botId: entry.key,
+        summary: jStr(proposal, 'kind') == 'agents' ? jStr(proposal, 'path') : jStr(proposal, 'name'),
+        data: proposal,
+      ));
+    }
+  }
+  for (final entry in team.connectorRequests.entries) {
+    if (team.bot(entry.key) == null || entry.value is! List) continue;
+    for (final request in (entry.value as List).whereType<Map>().map(asJson)) {
+      if (request['status'] != 'pending') continue;
+      items.add(PendingItem(kind: PendingKind.connector, key: 'c-${request['id']}', botId: entry.key, sessionId: jStr(request, 'sessionId'), summary: jStr(request, 'name'), data: request));
+    }
+  }
+  for (final entry in team.mailRequests.entries) {
+    if (team.bot(entry.key) == null || entry.value is! List) continue;
+    for (final request in (entry.value as List).whereType<Map>().map(asJson)) {
+      if (request['status'] != 'pending') continue;
+      items.add(PendingItem(kind: PendingKind.mail, key: 'm-${request['id']}', botId: entry.key, sessionId: jStr(request, 'sessionId'), summary: jStr(request, 'subject'), data: request));
+    }
   }
   return items;
 }

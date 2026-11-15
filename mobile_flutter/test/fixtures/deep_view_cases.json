@@ -1,0 +1,827 @@
+{
+ "inputs": {
+  "price": 12.5,
+  "qty": 3,
+  "rate": 0.075,
+  "name": "Ada",
+  "on": true,
+  "off": false,
+  "zero": 0,
+  "neg": -2.5,
+  "big": 1234567.891,
+  "text": "42",
+  "blank": ""
+ },
+ "cases": [
+  {
+   "source": "price * qty",
+   "names": [
+    "price",
+    "qty"
+   ],
+   "value": 37.5,
+   "shown": "37.5"
+  },
+  {
+   "source": "price * qty * (1 + rate)",
+   "names": [
+    "price",
+    "qty",
+    "rate"
+   ],
+   "value": 40.3125,
+   "shown": "40.3125"
+  },
+  {
+   "source": "round(price * qty * (1 + rate), 2)",
+   "names": [
+    "price",
+    "qty",
+    "rate"
+   ],
+   "value": 40.31,
+   "shown": "40.31"
+  },
+  {
+   "source": "fixed(price / 3, 4)",
+   "names": [
+    "price"
+   ],
+   "value": "4.1667",
+   "shown": "4.1667"
+  },
+  {
+   "source": "format(big, 2)",
+   "names": [
+    "big"
+   ],
+   "value": "1,234,567.89",
+   "shown": "1,234,567.89"
+  },
+  {
+   "source": "format(-big)",
+   "names": [
+    "big"
+   ],
+   "value": "-1,234,568",
+   "shown": "-1,234,568"
+  },
+  {
+   "source": "percent(rate, 1)",
+   "names": [
+    "rate"
+   ],
+   "value": "7.5%",
+   "shown": "7.5%"
+  },
+  {
+   "source": "percent(0.5)",
+   "names": [],
+   "value": "50%",
+   "shown": "50%"
+  },
+  {
+   "source": "min(price, qty, 7)",
+   "names": [
+    "price",
+    "qty"
+   ],
+   "value": 3,
+   "shown": "3"
+  },
+  {
+   "source": "max(1, 2, 3)",
+   "names": [],
+   "value": 3,
+   "shown": "3"
+  },
+  {
+   "source": "abs(neg)",
+   "names": [
+    "neg"
+   ],
+   "value": 2.5,
+   "shown": "2.5"
+  },
+  {
+   "source": "floor(neg)",
+   "names": [
+    "neg"
+   ],
+   "value": -3,
+   "shown": "-3"
+  },
+  {
+   "source": "ceil(neg)",
+   "names": [
+    "neg"
+   ],
+   "value": -2,
+   "shown": "-2"
+  },
+  {
+   "source": "round(neg)",
+   "names": [
+    "neg"
+   ],
+   "value": -2,
+   "shown": "-2"
+  },
+  {
+   "source": "round(2.5)",
+   "names": [],
+   "value": 3,
+   "shown": "3"
+  },
+  {
+   "source": "round(-0.5)",
+   "names": [],
+   "value": 0,
+   "shown": "0"
+  },
+  {
+   "source": "sqrt(16)",
+   "names": [],
+   "value": 4,
+   "shown": "4"
+  },
+  {
+   "source": "pow(2, 10)",
+   "names": [],
+   "value": 1024,
+   "shown": "1024"
+  },
+  {
+   "source": "clamp(price, 0, 10)",
+   "names": [
+    "price"
+   ],
+   "value": 10,
+   "shown": "10"
+  },
+  {
+   "source": "0.1 + 0.2",
+   "names": [],
+   "value": 0.30000000000000004,
+   "shown": "0.3"
+  },
+  {
+   "source": "1 / 3",
+   "names": [],
+   "value": 0.3333333333333333,
+   "shown": "0.333333333333"
+  },
+  {
+   "source": "10 % 3",
+   "names": [],
+   "value": 1,
+   "shown": "1"
+  },
+  {
+   "source": "-7 % 3",
+   "names": [],
+   "value": -1,
+   "shown": "-1"
+  },
+  {
+   "source": "7 % -3",
+   "names": [],
+   "value": 1,
+   "shown": "1"
+  },
+  {
+   "source": "1 / 0",
+   "names": [],
+   "value": null,
+   "shown": "Infinity"
+  },
+  {
+   "source": "-1 / 0",
+   "names": [],
+   "value": null,
+   "shown": "-Infinity"
+  },
+  {
+   "source": "0 / 0",
+   "names": [],
+   "value": null,
+   "shown": "NaN"
+  },
+  {
+   "source": "qty > 2 ? \"many\" : \"few\"",
+   "names": [
+    "qty"
+   ],
+   "value": "many",
+   "shown": "many"
+  },
+  {
+   "source": "on && off",
+   "names": [
+    "on",
+    "off"
+   ],
+   "value": false,
+   "shown": "false"
+  },
+  {
+   "source": "on || off",
+   "names": [
+    "on",
+    "off"
+   ],
+   "value": true,
+   "shown": "true"
+  },
+  {
+   "source": "!on",
+   "names": [
+    "on"
+   ],
+   "value": false,
+   "shown": "false"
+  },
+  {
+   "source": "zero || \"fallback\"",
+   "names": [
+    "zero"
+   ],
+   "value": "fallback",
+   "shown": "fallback"
+  },
+  {
+   "source": "blank || \"empty\"",
+   "names": [
+    "blank"
+   ],
+   "value": "empty",
+   "shown": "empty"
+  },
+  {
+   "source": "name + \" has \" + qty",
+   "names": [
+    "name",
+    "qty"
+   ],
+   "value": "Ada has 3",
+   "shown": "Ada has 3"
+  },
+  {
+   "source": "\"a\" == \"a\"",
+   "names": [],
+   "value": true,
+   "shown": "true"
+  },
+  {
+   "source": "qty == 3",
+   "names": [
+    "qty"
+   ],
+   "value": true,
+   "shown": "true"
+  },
+  {
+   "source": "text == 42",
+   "names": [
+    "text"
+   ],
+   "value": false,
+   "shown": "false"
+  },
+  {
+   "source": "text * 2",
+   "names": [
+    "text"
+   ],
+   "value": 84,
+   "shown": "84"
+  },
+  {
+   "source": "qty >= 3 && price < 20",
+   "names": [
+    "qty",
+    "price"
+   ],
+   "value": true,
+   "shown": "true"
+  },
+  {
+   "source": "-(-qty)",
+   "names": [
+    "qty"
+   ],
+   "value": 3,
+   "shown": "3"
+  },
+  {
+   "source": "+text",
+   "names": [
+    "text"
+   ],
+   "value": 42,
+   "shown": "42"
+  },
+  {
+   "source": "1e3 + .5",
+   "names": [],
+   "value": 1000.5,
+   "shown": "1000.5"
+  },
+  {
+   "source": "2 * (3 + 4) - 5 / 5",
+   "names": [],
+   "value": 13,
+   "shown": "13"
+  },
+  {
+   "source": "fixed(1.005, 2)",
+   "names": [],
+   "value": "1.00",
+   "shown": "1.00"
+  },
+  {
+   "source": "format(999.995, 2)",
+   "names": [],
+   "value": "1,000.00",
+   "shown": "1,000.00"
+  },
+  {
+   "source": "format(0.001, 2)",
+   "names": [],
+   "value": "0.00",
+   "shown": "0.00"
+  },
+  {
+   "source": "format(-0.001, 2)",
+   "names": [],
+   "value": "0.00",
+   "shown": "0.00"
+  },
+  {
+   "source": "round(1234.5678, 3)",
+   "names": [],
+   "value": 1234.568,
+   "shown": "1234.568"
+  },
+  {
+   "source": "pow(10, 21)",
+   "names": [],
+   "value": 1e+21,
+   "shown": "1e+21"
+  },
+  {
+   "source": "pow(10, -7)",
+   "names": [],
+   "value": 1e-7,
+   "shown": "1e-7"
+  },
+  {
+   "source": "1e21",
+   "names": [],
+   "value": 1e+21,
+   "shown": "1e+21"
+  },
+  {
+   "source": "123456789012345680000",
+   "names": [],
+   "value": 123456789012345680000,
+   "shown": "123456789012000000000"
+  },
+  {
+   "source": "big * 1000000",
+   "names": [
+    "big"
+   ],
+   "value": 1234567891000,
+   "shown": "1234567891000"
+  },
+  {
+   "source": "percent(-0.0001, 2)",
+   "names": [],
+   "value": "-0.01%",
+   "shown": "-0.01%"
+  },
+  {
+   "source": "unknownName + 1",
+   "names": [
+    "unknownName"
+   ],
+   "evalError": "unknown name \"unknownName\""
+  },
+  {
+   "source": "min()",
+   "error": "min() takes at least 1 arguments; got 0"
+  },
+  {
+   "source": "nope(1)",
+   "error": "unknown function \"nope\"; allowed: min, max, abs, floor, ceil, sqrt, pow, round, clamp, fixed, format, percent"
+  },
+  {
+   "source": "round(1, 11)",
+   "names": [],
+   "evalError": "digits must be a whole number from 0 to 10"
+  },
+  {
+   "source": "round(1, 1.5)",
+   "names": [],
+   "evalError": "digits must be a whole number from 0 to 10"
+  },
+  {
+   "source": "\"unclosed",
+   "error": "unclosed string at 1"
+  },
+  {
+   "source": "price *",
+   "error": "the formula ends too early"
+  },
+  {
+   "source": "name * 2",
+   "names": [
+    "name"
+   ],
+   "evalError": "\"Ada\" is not a number"
+  },
+  {
+   "source": "(1 + 2",
+   "error": "expected \")\" at the end"
+  },
+  {
+   "source": "1 ? 2",
+   "error": "expected \":\" at the end"
+  },
+  {
+   "source": "a.b",
+   "error": "unexpected \".\" at 2"
+  },
+  {
+   "source": "price == price",
+   "names": [
+    "price"
+   ],
+   "value": true,
+   "shown": "true"
+  },
+  {
+   "source": "true",
+   "names": [],
+   "value": true,
+   "shown": "true"
+  },
+  {
+   "source": "false + 1",
+   "names": [],
+   "value": 1,
+   "shown": "1"
+  },
+  {
+   "source": "on + 1",
+   "names": [
+    "on"
+   ],
+   "value": 2,
+   "shown": "2"
+  },
+  {
+   "source": "\"x\" + on",
+   "names": [
+    "on"
+   ],
+   "value": "xtrue",
+   "shown": "xtrue"
+  },
+  {
+   "source": "fixed(2)",
+   "names": [],
+   "value": "2",
+   "shown": "2"
+  },
+  {
+   "source": "format(1000)",
+   "names": [],
+   "value": "1,000",
+   "shown": "1,000"
+  },
+  {
+   "source": "percent(1.23456, 3)",
+   "names": [],
+   "value": "123.456%",
+   "shown": "123.456%"
+  },
+  {
+   "source": "subtotal * 2",
+   "names": [
+    "subtotal"
+   ],
+   "value": 75,
+   "shown": "75"
+  },
+  {
+   "source": "loop",
+   "names": [
+    "loop"
+   ],
+   "evalError": "\"loop\" refers to itself"
+  }
+ ],
+ "view": {
+  "type": "stack",
+  "let": {
+   "total": "qty * 2.5",
+   "broken": "missing + 1"
+  },
+  "children": [
+   {
+    "type": "slider",
+    "id": "qty",
+    "label": "Quantity",
+    "min": 1,
+    "max": 10,
+    "value": 2
+   },
+   {
+    "type": "choice",
+    "id": "size",
+    "label": "Size",
+    "options": [
+     {
+      "label": "Small",
+      "value": "s"
+     },
+     {
+      "label": "Large",
+      "value": "l"
+     }
+    ]
+   },
+   {
+    "type": "toggle",
+    "id": "gift",
+    "label": "Gift wrap"
+   },
+   {
+    "type": "options",
+    "id": "pick",
+    "options": [
+     {
+      "label": "A"
+     },
+     {
+      "label": "B"
+     },
+     {
+      "label": "C"
+     }
+    ],
+    "multi": true
+   },
+   {
+    "type": "confirm",
+    "id": "ok",
+    "confirmLabel": "Ship it",
+    "cancelLabel": "Hold"
+   },
+   {
+    "type": "form",
+    "id": "f",
+    "fields": [
+     {
+      "id": "note",
+      "label": "Note"
+     },
+     {
+      "id": "ro",
+      "label": "Fixed",
+      "readOnly": true,
+      "value": "v"
+     }
+    ]
+   },
+   {
+    "type": "submit",
+    "id": "go",
+    "label": "Send"
+   }
+  ]
+ },
+ "answerCases": [
+  {
+   "action": "pick",
+   "values": {
+    "selected": [
+     "B",
+     "A",
+     "B",
+     "Z"
+    ]
+   },
+   "checked": {
+    "selected": [
+     "B",
+     "A"
+    ],
+    "inputs": {
+     "qty": 2,
+     "size": "s",
+     "gift": false
+    }
+   },
+   "text": "B; A; Quantity=2; Size=s; Gift wrap=false"
+  },
+  {
+   "action": "pick",
+   "values": {
+    "selected": []
+   },
+   "checked": {
+    "error": "values.selected: select at least one option"
+   },
+   "text": null
+  },
+  {
+   "action": "ok",
+   "values": {
+    "confirmed": true
+   },
+   "checked": {
+    "confirmed": true,
+    "inputs": {
+     "qty": 2,
+     "size": "s",
+     "gift": false
+    }
+   },
+   "text": "Ship it; Quantity=2; Size=s; Gift wrap=false"
+  },
+  {
+   "action": "ok",
+   "values": {
+    "confirmed": false
+   },
+   "checked": {
+    "confirmed": false,
+    "inputs": {
+     "qty": 2,
+     "size": "s",
+     "gift": false
+    }
+   },
+   "text": "Hold; Quantity=2; Size=s; Gift wrap=false"
+  },
+  {
+   "action": "ok",
+   "values": {},
+   "checked": {
+    "error": "values.confirmed: expected a boolean"
+   },
+   "text": null
+  },
+  {
+   "action": "f",
+   "values": {
+    "fields": {
+     "note": "hi",
+     "ro": "changed"
+    }
+   },
+   "checked": {
+    "fields": {
+     "note": "hi",
+     "ro": "v"
+    },
+    "inputs": {
+     "qty": 2,
+     "size": "s",
+     "gift": false
+    }
+   },
+   "text": "Note: hi; Fixed: v; Quantity=2; Size=s; Gift wrap=false"
+  },
+  {
+   "action": "f",
+   "values": {
+    "canceled": true
+   },
+   "checked": {
+    "canceled": true,
+    "inputs": {
+     "qty": 2,
+     "size": "s",
+     "gift": false
+    }
+   },
+   "text": "Cancelled; Quantity=2; Size=s; Gift wrap=false"
+  },
+  {
+   "action": "f",
+   "values": {
+    "fields": {
+     "other": "x"
+    }
+   },
+   "checked": {
+    "error": "values.fields.other: unknown field; allowed: note, ro"
+   },
+   "text": null
+  },
+  {
+   "action": "go",
+   "values": {
+    "inputs": {
+     "qty": 4,
+     "size": "l",
+     "gift": true
+    }
+   },
+   "checked": {
+    "inputs": {
+     "qty": 4,
+     "size": "l",
+     "gift": true
+    }
+   },
+   "text": "Quantity=4; Size=l; Gift wrap=true"
+  },
+  {
+   "action": "go",
+   "values": {
+    "inputs": {
+     "qty": 40
+    }
+   },
+   "checked": {
+    "error": "values.inputs.qty: expected a number from 1 to 10"
+   },
+   "text": null
+  },
+  {
+   "action": "go",
+   "values": {
+    "inputs": {
+     "size": "m"
+    }
+   },
+   "checked": {
+    "error": "values.inputs.size: expected one of the options' values"
+   },
+   "text": null
+  },
+  {
+   "action": "go",
+   "values": {
+    "inputs": {
+     "nope": 1
+    }
+   },
+   "checked": {
+    "error": "values.inputs.nope: unknown input; allowed: qty, size, gift"
+   },
+   "text": null
+  },
+  {
+   "action": "missing",
+   "values": {},
+   "checked": {
+    "error": "action: no interactive component with id \"missing\"; allowed: pick, ok, f, go"
+   },
+   "text": null
+  },
+  {
+   "action": "",
+   "values": {},
+   "checked": {
+    "error": "action: expected an interactive component id; allowed: pick, ok, f, go"
+   },
+   "text": null
+  },
+  {
+   "action": "go",
+   "values": "notobject",
+   "checked": {
+    "error": "values: expected an object"
+   },
+   "text": null
+  }
+ ],
+ "resolved": [
+  {
+   "name": "total",
+   "value": 12.5
+  },
+  {
+   "name": "qty",
+   "value": 5
+  },
+  {
+   "name": "size",
+   "value": "s"
+  },
+  {
+   "name": "gift",
+   "value": false
+  },
+  {
+   "name": "broken",
+   "error": "unknown name \"missing\""
+  }
+ ]
+}

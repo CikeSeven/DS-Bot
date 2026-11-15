@@ -1,5 +1,6 @@
 package io.github.cikeseven.dsbot_mobile
 
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 
-class MainActivity : FlutterActivity()
+// FlutterFragmentActivity: local_auth shows the system unlock prompt as a fragment.
+class MainActivity : FlutterFragmentActivity()

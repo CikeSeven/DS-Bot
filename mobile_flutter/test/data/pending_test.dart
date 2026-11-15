@@ -37,11 +37,39 @@ void main() {
       },
     });
     final items = pendingItemsOf(team);
-    expect(items.map((item) => item.kind).toSet(), PendingKind.values.toSet());
+    expect(items.map((item) => item.kind).toSet(), {PendingKind.question, PendingKind.approval, PendingKind.secret, PendingKind.handoff, PendingKind.view});
     expect(items.length, 5);
     expect(items.firstWhere((item) => item.kind == PendingKind.approval).summary, 'bash · rm');
     expect(botHasPending(items, 'b1'), isTrue);
     expect(roomHasPending(items, 'r1'), isTrue);
     expect(pendingItemsOf(null), isEmpty);
+  });
+
+  test('learning proposals and pending connector and mail requests need the user too', () {
+    final team = TeamState({
+      'revision': 1,
+      'bots': [
+        {'id': 'b1', 'name': 'A', 'sessionId': 's1'},
+      ],
+      'learning': {
+        'b1': [
+          {'id': 'l1', 'kind': 'skill', 'name': 'release-notes'},
+        ],
+      },
+      'connectorRequests': {
+        'b1': [
+          {'id': 'c1', 'name': 'GitHub', 'status': 'pending'},
+          {'id': 'c2', 'name': 'Slack', 'status': 'connected'},
+        ],
+      },
+      'mailRequests': {
+        'b1': [
+          {'id': 'm1', 'subject': 'Weekly report', 'status': 'pending'},
+        ],
+      },
+    });
+    final items = pendingItemsOf(team);
+    expect(items.map((item) => item.kind).toList(), [PendingKind.learning, PendingKind.connector, PendingKind.mail]);
+    expect(items.map((item) => item.summary).toList(), ['release-notes', 'GitHub', 'Weekly report']);
   });
 }
