@@ -17,7 +17,7 @@
 	<array>
 		<dict>
 			<key>CFBundleURLName</key>
-			<string>io.github.cikeseven.dsbot</string>
+			<string>com.dsbot</string>
 			<key>CFBundleURLSchemes</key>
 			<array>
 				<string>dsbot</string>

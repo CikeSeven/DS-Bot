@@ -1,4 +1,4 @@
-package io.github.cikeseven.dsbot_mobile
+package com.dsbot
 
 import io.flutter.embedding.android.FlutterFragmentActivity
 

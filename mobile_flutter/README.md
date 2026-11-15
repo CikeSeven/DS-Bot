@@ -1,6 +1,6 @@
 # DS Bot phone app (Flutter)
 
-The DS Bot app for Android and iOS, built with Flutter. It controls the Bot team that runs on your computer; nothing runs on the phone. It lives beside the Expo app in [../mobile](../mobile) and talks to the same computer side, with its own package id (`io.github.cikeseven.dsbot`), so both can be installed at once. A phone paired with one is not paired with the other.
+The DS Bot app for Android and iOS, built with Flutter. It controls the Bot team that runs on your computer; nothing runs on the phone. It lives beside the Expo app in [../mobile](../mobile) and talks to the same computer side, with its own package id (`com.dsbot`), so both can be installed at once. A phone paired with one is not paired with the other.
 
 ## What is in it
 

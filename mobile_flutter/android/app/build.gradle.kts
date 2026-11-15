@@ -31,7 +31,7 @@ fun versionCodeOf(version: String): Int {
 val keystorePath: String? = System.getenv("DSBOT_ANDROID_KEYSTORE")
 
 android {
-    namespace = "io.github.cikeseven.dsbot_mobile"
+    namespace = "com.dsbot"
     // androidx.core 1.19 (pulled in by the plugins) needs API 37.
     compileSdk = 37
     ndkVersion = flutter.ndkVersion
@@ -45,7 +45,7 @@ android {
 
     defaultConfig {
         // A separate id from the Expo app, so both can be installed side by side.
-        applicationId = "io.github.cikeseven.dsbot"
+        applicationId = "com.dsbot"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion
         versionCode = versionCodeOf(dsBotVersion)
