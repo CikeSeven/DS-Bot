@@ -36,11 +36,21 @@ class _PairPageState extends State<PairPage> {
   @override
   void initState() {
     super.initState();
-    final initial = widget.initialLink;
-    if (initial != null && initial.isNotEmpty) {
-      _link.text = initial;
-      scheduleMicrotask(() => _pair(initial));
-    }
+    _take(widget.initialLink);
+  }
+
+  // A link opened while this page already shows (the launch link arrives after
+  // the first frame) comes as a new initialLink, not a new page.
+  @override
+  void didUpdateWidget(PairPage old) {
+    super.didUpdateWidget(old);
+    if (widget.initialLink != old.initialLink) _take(widget.initialLink);
+  }
+
+  void _take(String? link) {
+    if (link == null || link.isEmpty) return;
+    _link.text = link;
+    scheduleMicrotask(() => _pair(link));
   }
 
   @override
