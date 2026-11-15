@@ -4,19 +4,25 @@
 @Tags(['screenshot'])
 library;
 
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
 
+import 'package:dsbot_mobile/api/link_client.dart';
 import 'package:dsbot_mobile/app/app.dart';
 import 'package:dsbot_mobile/app/app_state.dart';
 import 'package:dsbot_mobile/data/store.dart';
+import 'package:dsbot_mobile/link/link.dart';
 import 'package:dsbot_mobile/shared/shared_data.dart';
 import 'package:dsbot_mobile/ui/i18n.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/fake_link.dart';
+import '../support/platform_mocks.dart';
 
 const _fontPaths = [
   '/usr/share/fonts/harmonyos-sans/HarmonyOS_Sans_SC.ttf',
@@ -114,5 +120,69 @@ void main() {
     await tester.pumpWidget(const SizedBox());
     await tester.runAsync(() async => state.dispose());
     await tester.pump(const Duration(seconds: 1));
+  });
+
+  testWidgets('onboarding screens', (tester) async {
+    final fonts = await tester.runAsync(_loadFonts) ?? false;
+    if (!fonts) {
+      markTestSkipped('No CJK font found');
+      return;
+    }
+    SharedData.fromJsonText(File('assets/shared/shared.json').readAsStringSync());
+    I18n.loadText(File('assets/i18n/zh.json').readAsStringSync());
+    mockQuietPlatform(tester);
+    final dark = Platform.environment['SHOT_DARK'] == '1';
+    final kv = MemoryStore({'dsbot.prefs': jsonEncode({'lang': 'zh', 'theme': dark ? 'dark' : 'light'})});
+    final answer = Completer<LinkClient>();
+    final never = Completer<LinkClient>();
+    final state = (await tester.runAsync(() => AppState.load(
+          kv: kv,
+          pairOpener: (candidate, identity, code) => answer.future,
+          sessionOpener: (computer, identity, {pairingCode}) => never.future,
+        )))!;
+    tester.view.physicalSize = const Size(1080, 2340);
+    tester.view.devicePixelRatio = 2.625;
+    tester.view.padding = const FakeViewPadding(top: 63, bottom: 42);
+    tester.view.viewPadding = const FakeViewPadding(top: 63, bottom: 42);
+    addTearDown(tester.view.reset);
+    final key = GlobalKey();
+    final suffix = dark ? '-dark' : '';
+    Future<void> frames(int count) async {
+      for (var i = 0; i < count; i++) {
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    await tester.pumpWidget(RepaintBoundary(key: key, child: DsBotApp(state: state)));
+    await frames(24);
+    await _shot(tester, key, '10-welcome$suffix');
+
+    await tester.tap(find.bySemanticsLabel(t('Get started')));
+    await frames(16);
+    await _shot(tester, key, '11-pair$suffix');
+
+    await tester.tap(find.text(t('Enter link')));
+    await frames(5);
+    final keys = generateKeyPair();
+    final link = pairingUri(PairingOffer(
+      server: 'wss://bot.sisct.xyz/v1/link',
+      hostDeviceId: deviceIdFor(keys.publicKey),
+      hostKey: keys.publicKey,
+      code: 'ABCD-1234',
+      name: 'QiYue-Archlinux',
+    ));
+    await tester.enterText(find.byType(EditableText), link);
+    await tester.tap(find.text(t('Connect')));
+    await frames(8);
+    await _shot(tester, key, '12-pair-connecting$suffix');
+
+    answer.complete(FakeLinkClient((endpoint, payload, state) => {}));
+    await frames(10);
+    await _shot(tester, key, '13-pair-connected$suffix');
+
+    await frames(20);
+    await tester.pumpWidget(const SizedBox());
+    await tester.pump(const Duration(seconds: 1));
+    state.dispose();
   });
 }

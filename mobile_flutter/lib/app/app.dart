@@ -8,6 +8,7 @@ import '../background/notifier.dart';
 import '../background/wiring.dart';
 import '../data/json.dart';
 import '../features/home/home_shell.dart';
+import '../features/onboarding/onboarding_flow.dart';
 import '../features/pair/pair_page.dart';
 import '../ui/glass.dart';
 import '../ui/theme.dart';
@@ -119,9 +120,31 @@ class _Root extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final session = state.session;
+    final Widget page;
     if (session == null || state.pendingPairLink != null) {
-      return PairPage(initialLink: state.pendingPairLink, canCancel: session != null);
+      final fresh = session == null && state.computers.computers.isEmpty;
+      page = OnboardingFlow(
+        key: const ValueKey('onboarding'),
+        welcome: state.showWelcome,
+        onEnter: state.finishWelcome,
+        pair: PairPage(
+          initialLink: state.pendingPairLink,
+          canCancel: session != null,
+          onBack: fresh ? state.reopenWelcome : null,
+        ),
+      );
+    } else {
+      page = HomeShell(key: ValueKey(session.computer.hostDeviceId));
     }
-    return HomeShell(key: ValueKey(session.computer.hostDeviceId));
+    // The team fades in over the pairing page, which stays opaque underneath:
+    // its glass must not sit in a fading layer.
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 450),
+      switchInCurve: Curves.easeOutCubic,
+      switchOutCurve: Curves.easeIn,
+      transitionBuilder: (child, animation) =>
+          child.key == const ValueKey('onboarding') ? child : FadeTransition(opacity: animation, child: child),
+      child: page,
+    );
   }
 }

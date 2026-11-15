@@ -22,6 +22,7 @@ class AppPrefs {
     this.glass = true,
     this.keepConnected = false,
     this.enterToSend = false,
+    this.welcomed = false,
   });
 
   factory AppPrefs.from(Map<String, String> raw) => AppPrefs(
@@ -39,6 +40,7 @@ class AppPrefs {
         glass: raw['glass'] != 'off',
         keepConnected: raw['keepConnected'] == 'on',
         enterToSend: raw['enterToSend'] == 'on',
+        welcomed: raw['welcomed'] == 'on',
       );
 
   final ThemeMode themeMode;
@@ -47,15 +49,39 @@ class AppPrefs {
   final bool glass;
   final bool keepConnected;
   final bool enterToSend;
+
+  /// The welcome page has been seen; it shows once per install.
+  final bool welcomed;
+}
+
+/// Opens the link once with the pairing code inside the handshake.
+typedef PairOpener = Future<LinkClient> Function(SavedComputer candidate, PhoneIdentity identity, String pairingCode);
+
+Future<LinkClient> _openRelayPair(SavedComputer candidate, PhoneIdentity identity, String pairingCode) async =>
+    RelayLinkClient.open(candidate, identity, pairingCode: pairingCode, phoneName: await phoneName());
+
+/// A computer that accepted this phone, not saved yet.
+class PairedComputer {
+  const PairedComputer(this.offer, this.hostName);
+
+  final PairingOffer offer;
+  final String? hostName;
+
+  /// The name it is saved under: the pairing code's, else the one the computer gave.
+  String get name => offer.name.isNotEmpty ? offer.name : (hostName ?? '');
 }
 
 class AppState extends ChangeNotifier {
-  AppState._(this.store, this.seen, this.identity, this._computers, this._prefs, {this.demo});
+  AppState._(this.store, this.seen, this.identity, this._computers, this._prefs, {this.demo, PairOpener? pairOpener, LinkOpener? sessionOpener})
+      : _openPair = pairOpener ?? _openRelayPair,
+        _openSession = sessionOpener;
 
   final PhoneStore store;
   final SeenStore seen;
   final PhoneIdentity identity;
   final DemoLinkClient? demo;
+  final PairOpener _openPair;
+  final LinkOpener? _openSession;
   ComputerList _computers;
   AppPrefs _prefs;
   TeamSession? _session;
@@ -63,7 +89,12 @@ class AppState extends ChangeNotifier {
   /// Set when the app should open the pairing screen with this link filled in.
   String? pendingPairLink;
 
-  static Future<AppState> load({KeyValueStore? kv, Map<String, dynamic>? demoData}) async {
+  static Future<AppState> load({
+    KeyValueStore? kv,
+    Map<String, dynamic>? demoData,
+    PairOpener? pairOpener,
+    LinkOpener? sessionOpener,
+  }) async {
     final store = PhoneStore(kv ?? SecureKeyValueStore());
     final seen = SeenStore(store.kv);
     final identity = await store.loadIdentity();
@@ -73,7 +104,7 @@ class AppState extends ChangeNotifier {
     final prefs = AppPrefs.from(await store.readPrefs());
     I18n.pref = prefs.lang;
     await seen.load();
-    final state = AppState._(store, seen, identity, computers, prefs, demo: demoData == null ? null : DemoLinkClient(demoData));
+    final state = AppState._(store, seen, identity, computers, prefs, demo: demoData == null ? null : DemoLinkClient(demoData), pairOpener: pairOpener, sessionOpener: sessionOpener);
     state._startSession();
     return state;
   }
@@ -98,28 +129,44 @@ class AppState extends ChangeNotifier {
       unlocker: demo != null ? const AlwaysUnlocked() : DeviceUnlocker(),
       open: demo != null
           ? (computer, identity, {pairingCode}) async => demo
-          : (computer, identity, {pairingCode}) async =>
-              RelayLinkClient.open(computer, identity, pairingCode: pairingCode, phoneName: await phoneName()),
+          : _openSession ??
+              (computer, identity, {pairingCode}) async =>
+                  RelayLinkClient.open(computer, identity, pairingCode: pairingCode, phoneName: await phoneName()),
     );
     _session = session;
     session.start();
   }
 
-  /// Pairs with the computer in a pairing link: opens the link once with the code
-  /// inside the encrypted handshake, then saves the computer and switches to it.
-  Future<SavedComputer> pair(String link) async {
+  /// The welcome page: a fresh install with nothing paired and no link to open.
+  bool get showWelcome =>
+      demo == null && _session == null && pendingPairLink == null && _computers.computers.isEmpty && !_prefs.welcomed;
+
+  Future<void> finishWelcome() => setPrefs({'welcomed': 'on'});
+
+  /// Back from the first pairing screen to the welcome page.
+  Future<void> reopenWelcome() => setPrefs({'welcomed': 'off'});
+
+  /// Opens the link in a pairing link once, with the code inside the encrypted
+  /// handshake. Nothing is saved until [adopt].
+  Future<PairedComputer> connect(String link) async {
     final offer = parsePairingUri(link);
-    final candidate = SavedComputer.fromOffer(offer);
-    final client = await RelayLinkClient.open(candidate, identity, pairingCode: offer.code, phoneName: await phoneName());
+    final client = await _openPair(SavedComputer.fromOffer(offer), identity, offer.code);
     final hostName = client.hostName;
     await client.close();
-    final saved = await store.addComputer(offer, name: hostName);
+    return PairedComputer(offer, hostName);
+  }
+
+  /// Saves a computer that accepted this phone and switches to it.
+  Future<SavedComputer> adopt(PairedComputer paired) async {
+    final saved = await store.addComputer(paired.offer, name: paired.hostName);
     _computers = await store.listComputers();
     pendingPairLink = null;
     _startSession();
     notifyListeners();
     return saved;
   }
+
+  Future<SavedComputer> pair(String link) async => adopt(await connect(link));
 
   Future<void> switchTo(String hostDeviceId) async {
     if (hostDeviceId == computer?.hostDeviceId) return;
@@ -147,6 +194,8 @@ class AppState extends ChangeNotifier {
   /// Opens the pairing screen, with [link] filled in and sent when given.
   void openPairLink([String link = '']) {
     pendingPairLink = link;
+    // A pairing link stands in for the welcome page, now and later.
+    if (link.isNotEmpty && !_prefs.welcomed) unawaited(finishWelcome());
     notifyListeners();
   }
 

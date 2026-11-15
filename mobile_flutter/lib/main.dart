@@ -8,6 +8,7 @@ import 'app/app_state.dart';
 import 'background/wiring.dart';
 import 'data/demo_link.dart';
 import 'shared/shared_data.dart';
+import 'ui/liquid_glass.dart';
 import 'ui/i18n.dart';
 
 Future<void> main() async {
@@ -15,6 +16,7 @@ Future<void> main() async {
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
   await SharedData.load();
   await I18n.load();
+  await LiquidGlassShader.load();
   Map<String, dynamic>? demo;
   if (demoMode) demo = jsonDecode(await rootBundle.loadString('assets/demo/team.json')) as Map<String, dynamic>;
   final state = await AppState.load(demoData: demo);
