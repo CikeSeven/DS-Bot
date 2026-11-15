@@ -11,7 +11,7 @@ import { DeviceRegistry, HostLink, LINK_PATH, deviceIdFor, generateKeyPair, pair
 
 const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
-export const DEFAULT_SERVER = `wss://relay.dsbot.app${LINK_PATH}`
+export const DEFAULT_SERVER = `wss://bot.sisct.xyz${LINK_PATH}`
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 

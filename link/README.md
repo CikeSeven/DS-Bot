@@ -18,7 +18,7 @@ npm test
 PORT=8787 DSBOT_LINK_DATA=./data/devices.json npm run server
 ```
 
-The Server speaks plain `ws://`. Put it behind a TLS proxy and give phones the `wss://` address. DS Bot uses `wss://relay.dsbot.app/v1/link` unless the user enters another Server in Settings → Phone.
+The Server speaks plain `ws://`. Put it behind a TLS proxy and give phones the `wss://` address. DS Bot uses `wss://bot.sisct.xyz/v1/link` unless the user enters another Server in Settings → Phone.
 
 Settings, all optional:
 
