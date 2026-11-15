@@ -701,3 +701,24 @@ Future<void> showStepDetail(BuildContext context, String sessionId, Json item) {
     ),
   );
 }
+
+/// What the model thought in one turn (the computer's `thinking` with `text`).
+Future<void> showThinking(BuildContext context, String sessionId, Json item) {
+  final p = context.p;
+  return showGlassSheet<void>(
+    context,
+    maxHeightFactor: 0.9,
+    builder: (sheet) => Loader(
+      endpoint: 'thinking',
+      payload: {'sessionId': sessionId, 'turn': item['turn'], 'text': true},
+      follow: false,
+      builder: (context, value, _) => ListView(shrinkWrap: true, padding: const EdgeInsets.fromLTRB(16, 0, 16, 20), children: [
+        SheetTitle(t('Thinking')),
+        if (jNum(value, 'ms') != null) Text(t('thought for {seconds}s', {'seconds': ((jNum(value, 'ms') ?? 0) / 1000).round()}), style: TypeScale.caption.copyWith(color: p.ink3)),
+        const SizedBox(height: 8),
+        SelectableText(jStr(value, 'text') ?? t('Nothing recorded for this turn'), style: TypeScale.small.copyWith(color: p.ink2, height: 1.6)),
+        if (jBool(value, 'truncated') == true) Padding(padding: const EdgeInsets.only(top: 8), child: Text(t('Cut short; the whole output is on the computer.'), style: TypeScale.caption.copyWith(color: p.ink3))),
+      ]),
+    ),
+  );
+}

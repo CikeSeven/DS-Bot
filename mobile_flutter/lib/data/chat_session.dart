@@ -370,12 +370,15 @@ class ChatSession extends ChangeNotifier {
       for (final file in entry.files) {
         files.add(await _stageFile(file));
       }
-      await team.call('send', {
-        'sessionId': entry.sessionId,
-        'text': jStr(entry.item, 'text') ?? '',
-        if (images.isNotEmpty) 'images': images,
-        if (files.isNotEmpty) 'files': files,
-      });
+      final text = jStr(entry.item, 'text') ?? '';
+      // The computer takes photos and files in separate messages: photos (and the
+      // text) go first, then the files.
+      if (images.isNotEmpty || files.isEmpty) {
+        await team.call('send', {'sessionId': entry.sessionId, 'text': text, if (images.isNotEmpty) 'images': images});
+      }
+      if (files.isNotEmpty) {
+        await team.call('send', {'sessionId': entry.sessionId, 'text': images.isEmpty ? text : '', 'files': files});
+      }
       // What the chat already holds, so only a new row of the same text counts as this one.
       final cached = _pages.get(key);
       final all = [...?cached?.older, ...?cached?.page.items];

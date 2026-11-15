@@ -32,7 +32,8 @@ val keystorePath: String? = System.getenv("DSBOT_ANDROID_KEYSTORE")
 
 android {
     namespace = "io.github.cikeseven.dsbot_mobile"
-    compileSdk = flutter.compileSdkVersion
+    // androidx.core 1.19 (pulled in by the plugins) needs API 37.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {

@@ -201,6 +201,7 @@ class _ChatPageState extends State<ChatPage> {
             onRetry: chat.retry,
             onDiscard: chat.discard,
             onSteps: TeamScope.read(context).has('step-detail') ? (item) => showStepDetail(context, chat.sessionId, item) : null,
+            onThinking: TeamScope.read(context).has('thinking-text') ? (item) => showThinking(context, chat.sessionId, item) : null,
           ),
         );
       },

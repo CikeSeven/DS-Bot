@@ -36,6 +36,7 @@ class ChatItemView extends StatelessWidget {
     this.onRetry,
     this.onDiscard,
     this.onSteps,
+    this.onThinking,
     this.admin,
   });
 
@@ -50,6 +51,9 @@ class ChatItemView extends StatelessWidget {
   final void Function(String localId)? onRetry;
   final void Function(String localId)? onDiscard;
   final void Function(Json item)? onSteps;
+
+  /// Opens a turn's thinking; set when the computer offers `thinking-text`.
+  final void Function(Json item)? onThinking;
   final String? admin;
 
   Json get item => row.item;
@@ -59,7 +63,7 @@ class ChatItemView extends StatelessWidget {
     final p = context.p;
     switch (row.kind) {
       case 'steps':
-        return _Steps(item: item, onTap: onSteps);
+        return _Steps(item: item, onTap: onSteps, onThinking: onThinking);
       case 'divider':
         final time = jInt(item, 'time');
         return Padding(
@@ -445,10 +449,11 @@ class _Settled extends StatelessWidget {
 
 /// The folded tool calls of one turn: "Used N tools · thought for Ns".
 class _Steps extends StatefulWidget {
-  const _Steps({required this.item, this.onTap});
+  const _Steps({required this.item, this.onTap, this.onThinking});
 
   final Json item;
   final void Function(Json item)? onTap;
+  final void Function(Json item)? onThinking;
 
   @override
   State<_Steps> createState() => _StepsState();
@@ -495,6 +500,20 @@ class _StepsState extends State<_Steps> {
               : Padding(
                   padding: const EdgeInsets.only(left: 26, top: 2, bottom: 4),
                   child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                    if (widget.onThinking != null && ms != null && ms > 0)
+                      InkWell(
+                        onTap: () => widget.onThinking!(widget.item),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 3),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Ico(AppIcon.brain, size: 13, color: p.accent),
+                            const SizedBox(width: 6),
+                            Text(t('Thinking'), style: TypeScale.caption.copyWith(color: p.accent)),
+                            const SizedBox(width: 4),
+                            Ico(AppIcon.forward, size: 11, color: p.accent),
+                          ]),
+                        ),
+                      ),
                     for (final (index, tool) in tools.indexed)
                       InkWell(
                         onTap: widget.onTap == null ? null : () => widget.onTap!({...widget.item, 'index': index, 'tool': tool}),

@@ -255,4 +255,9 @@ const appZh = <String, String>{
   '{count} sessions': '{count} 个会话',
   '{name} learned something': '{name} 学到了新东西',
   '{name}\'s usage': '{name} 的用量',
+  'Nothing recorded for this turn': '这一轮没有记录到思考内容',
+  'Send photos and files in separate messages': '照片和文件要分开发送',
+  'A file did not arrive. Send it again.': '有个文件没有送达，请重新发送。',
+  'This file is too large to send from the phone (over 32 MB)': '这个文件太大，不能从手机发送（超过 32 MB）',
+  'The file arrived out of order. Send it again.': '文件顺序乱了，请重新发送。',
 };
