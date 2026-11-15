@@ -8,6 +8,7 @@ The DS Bot app for Android and iOS, built with Flutter. It controls the Bot team
 - `lib/data/`: the team session (sync by revision, optimistic writes, notices, read times), one chat (pages, sending, streaming), the demo team.
 - `lib/shared/`: what the phone shares with the desktop UI: themes, inks, the twenty characters, and a Dart port of deep-view's card formulas.
 - `lib/ui/`: the design system (palette from the desktop themes, type, springs, glass surfaces, line icons, avatars, Markdown).
+- `shaders/liquid_glass.frag`: the onboarding glass, run as a backdrop filter where the engine supports it (Impeller); elsewhere `LiquidGlass` falls back to a blur. Never fade an ancestor of it: in a fading layer the engine renders it offscreen and the shader loses its coordinates and backdrop, so it fades itself through `appear`.
 - `lib/features/`: the screens. `lib/background/`: system notifications and the optional foreground service.
 
 ## Run
@@ -30,6 +31,16 @@ Pair on the computer under DS Bot Settings → Phone: scan the QR code, paste it
 - `test/link/relay_integration_test.dart` (tag `integration`) runs the Dart client against the real Relay Server and computer side from `../link` (`tool/link_test_host.mjs`).
 - `test/shared/deep_view_test.dart` compares the formula port with cases from deep-view: `node tool/gen_deep_view_cases.mjs path/to/deep-view`.
 - `test/screens/screenshot_test.dart` (tag `screenshot`) renders the demo screens to `build/screenshots/`. It needs a CJK font installed; set `SHOT_DARK=1` for dark mode.
+
+## Performance
+
+`integration_test/onboarding_perf_test.dart` runs the first-run flow on a connected phone in profile mode and writes frame times per phase (from the engine's `FrameTiming`, against the display's refresh rate) to `build/onboarding_perf.json`:
+
+```sh
+flutter drive --profile --driver=test_driver/perf_driver.dart --target=integration_test/onboarding_perf_test.dart
+```
+
+`flutter drive` installs a test build over the app; install the app again afterwards.
 
 ## Shared files
 
