@@ -1,5 +1,5 @@
 // The first Main Bot heads the Team page as one large character, with no card
-// around it: its name, role and model, and one line for what it is doing now.
+// around it: its name and role, and one line for what it is doing now.
 // Large avatars carry no badges (ui-standard 8.2), so a ring shows its state.
 import 'dart:async';
 
@@ -56,7 +56,7 @@ class MainHero extends StatelessWidget {
     final doing = team.workBots[bot.id];
     final working = doing != null;
     final line = _line(bot);
-    final subtitle = [bot.role ?? t('Main Bot'), bot.engine ?? _modelName(bot)].whereType<String>().where((part) => part.isNotEmpty).join(' · ');
+    final subtitle = [bot.role ?? t('Main Bot'), ?bot.engine].where((part) => part.isNotEmpty).join(' · ');
     return Semantics(
       button: true,
       excludeSemantics: true,
@@ -118,12 +118,6 @@ class MainHero extends StatelessWidget {
     final (icon, label) = pendingKind(need.kind);
     final summary = need.summary;
     return (text: summary == null || summary.isEmpty ? label : '$label · $summary', kind: BotLineKind.waiting, icon: icon);
-  }
-
-  String? _modelName(Bot bot) {
-    final ref = bot.model ?? bot.appliedModel ?? team.defaultModel;
-    if (ref == null) return null;
-    return team.models.where((entry) => entry.ref == ref).firstOrNull?.name ?? ref.split('/').last;
   }
 
   Widget _status(BuildContext context, Bot bot, ({String? text, BotLineKind kind, AppIcon? icon}) line, Object? doing) {

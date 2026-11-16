@@ -48,18 +48,19 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
   }
 
-  testWidgets('shows the first Main Bot with its role, model and last message', (tester) async {
+  testWidgets('shows the first Main Bot with its role and last message, not its model', (tester) async {
     final lastAt = DateTime.now().subtract(const Duration(minutes: 5)).millisecondsSinceEpoch;
     await show(tester, _team(chief: {'preview': 'Here is the plan, in order', 'lastAt': lastAt}));
     expect(find.text('Chief'), findsOneWidget);
-    expect(find.text('Runs the team · DeepSeek v4.1'), findsOneWidget);
+    expect(find.text('Runs the team'), findsOneWidget);
+    expect(find.textContaining('DeepSeek'), findsNothing);
     expect(find.text('Here is the plan, in order'), findsOneWidget);
     expect(find.text(' · ${shortWhen(lastAt)}'), findsOneWidget);
   });
 
   testWidgets('falls back to "Main Bot" without a role', (tester) async {
     await show(tester, _team(chief: {'role': null}));
-    expect(find.text('Main Bot · DeepSeek v4.1'), findsOneWidget);
+    expect(find.text('Main Bot'), findsOneWidget);
   });
 
   testWidgets('shows the step in hand, where, and for how long', (tester) async {
