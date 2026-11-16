@@ -1,12 +1,13 @@
 // One row of a chat, per display item kind (parts.js displayItems, mobile.js
 // roomItems): bubbles, group posts with the member's name and color, round
-// events, settled cards and answers. Tool steps are not shown.
+// events, team actions, settled cards and answers. Tool steps are not shown.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../app/nav.dart';
 import '../../data/chat_items.dart';
 import '../../data/chat_session.dart';
 import '../../data/json.dart';
@@ -20,6 +21,8 @@ import '../../ui/markdown.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 import '../manage/work_pages.dart';
+import 'act_row.dart';
+import 'exchange_page.dart';
 import 'media.dart';
 import 'view_card.dart';
 
@@ -37,6 +40,7 @@ class ChatItemView extends StatelessWidget {
     this.onRetry,
     this.onDiscard,
     this.admin,
+    this.botId,
   });
 
   final ChatRow row;
@@ -50,6 +54,9 @@ class ChatItemView extends StatelessWidget {
   final void Function(String localId)? onRetry;
   final void Function(String localId)? onDiscard;
   final String? admin;
+
+  /// The Bot whose own chat this is; a line about another Bot opens their exchange.
+  final String? botId;
 
   Json get item => row.item;
 
@@ -77,14 +84,7 @@ class ChatItemView extends StatelessWidget {
         final name = jStr(item, 'name') ?? t('a Bot');
         final round = roundEventText(name, jStr(item, 'event'), jStr(item, 'text'), jStr(item, 'code'));
         if (round != null) return _Caption(round, tone: jStr(item, 'event') == 'failed' ? Palette.danger : null);
-        final label = switch (jStr(item, 'role')) {
-          'request' => t('asked for work'),
-          'reply' => t('replied'),
-          'report' => t('reported back'),
-          'stopped' => t('stopped'),
-          final other => other ?? '',
-        };
-        return _Caption(t('{name} {event}', {'name': name, 'event': label}));
+        return _fromBot(context, name);
       case 'closed':
         final question = jMap(item, 'question');
         return _Settled(
@@ -95,6 +95,8 @@ class ChatItemView extends StatelessWidget {
         final view = item['view'];
         if (view == null) return _Settled(title: jStr(item, 'title') ?? t('Card'));
         return Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: ViewCard(sessionId: sessionId, title: jStr(item, 'title'), root: view, readOnly: true));
+      case 'act':
+        return ActRow(item: item, team: team, sessionId: sessionId, maxWidth: botMax);
       case 'answer':
         return _answer(context, p);
       case 'user':
@@ -102,6 +104,32 @@ class ChatItemView extends StatelessWidget {
       default:
         return _bot(context, p);
     }
+  }
+
+  /// Another Bot's message, reply or stop that reached this Bot, as the
+  /// desktop's line: it opens the two Bots' exchange, a group's report the group.
+  Widget _fromBot(BuildContext context, String name) {
+    if (jStr(item, 'role') == 'report') {
+      final room = team.room(jStr(item, 'roomId'));
+      return EventLine(
+        prefix: t('Replies from'),
+        lead: room == null ? null : RoomAvatar(room: room, team: team, size: 18),
+        name: room?.name ?? t('a group chat'),
+        onTap: room == null ? null : () => openChat(context, roomId: room.id, replace: true),
+      );
+    }
+    final other = team.bot(jStr(item, 'botId'));
+    final self = botId ?? team.botOfSession(sessionId)?.id;
+    return EventLine(
+      prefix: switch (jStr(item, 'role')) {
+        'stopped' => t('Stopped by'),
+        'reply' => t('Reply from'),
+        _ => t('Message from'),
+      },
+      lead: BotAvatar(bot: other, size: 18),
+      name: other?.name ?? name,
+      onTap: other == null || self == null ? null : () => push(context, ExchangePage(a: self, b: other.id)),
+    );
   }
 
   Widget _answer(BuildContext context, Palette p) {

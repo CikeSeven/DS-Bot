@@ -128,3 +128,15 @@ the existing whole-file response and its 16 MiB compatibility limit.
 - `message-search`：`{ botId, query }` 在这个 Bot 自己的聊天（所有分段）里按词搜索，返回 `{ results: [{ sessionId, seq, time, role: 'user'|'bot', text }] }`，最新的在前，最多 20 条。复用 `read_own_chat` 的聊天索引。
 - `step-detail`：`{ sessionId, turn, index }` 返回这一轮步骤行里第 `index` 个工具调用的 `{ name, arguments, output, ok?, done, truncated }`，参数和输出各截到 8000 字。
 - `thinking-text`：`thinking` 多一个 `text: true`，同时返回这一轮的思考内容 `{ ms, text, truncated? }`，最多 20000 字。
+
+## 团队动作条目（2026-11-16）
+
+能力 `chat-acts`。`chat`、`earlier` 和 feed 的 `message` 多一种条目 `{ kind: 'act', act, state, callId, seq, turn, time, … }`，就是桌面聊天里画成事件行的那些调用（`cells.js` 的 `renderCall`），名字在主机上解析成 id，手机点开就能跳过去。其他工具调用照旧不出现。
+
+- `act`：`message`、`stop`（`bot`、`from`，`from` 是发出的 Bot，两人的往来用 `exchange { a: from, b: bot.id }` 读）；`create-bot`、`update-bot`（`bot`，改的是自己时 `self: true`）；`group`（`verb` 是 `created`、`updated`、`deleted`、`posted`，`room`）；`read-group`（`room`）；`memory`（`tool`、`outcome` 是 `saved`、`already`、`unchanged`、`failed`，`whose` 是 `self`、`team`、`bot`，`open` 是能打开的记忆 `{ botId }` 或 `{ roomId }`，`code`）；`computer`（`method`、`app?`、`shot?: { attachmentId, mime? }`）。
+- `bot`、`room` 是 `{ id?, name }`：已经不在的 Bot 或删掉的群只有名字。
+- `state` 是 `running`、`done`、`failed`。发消息、叫停和电脑步骤从调用开始就有；其余的等结果出来才有，结果说明什么都没发生时不出条目。
+- 条目放在调用的位置，`seq` 是调用的 seq，所以结果到了同一行原地更新。feed 一次只送一个事件：结果单独到达时，主机按记下的调用补出完整条目。
+- `run_code` 程序里派发的同类调用（`tool/ptc-dispatch`）也算。隐藏的 Bot 间对话轮次不出条目。
+- `image` 也认工具结果里的图片，电脑步骤的截图用它取，和聊天照片一样有预览。
+- 手机把相连的电脑步骤合成一张卡片，列出步骤和截图；其余条目是居中的事件行，点开对应的聊天、往来记录、Bot 详情或记忆。

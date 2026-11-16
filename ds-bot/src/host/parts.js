@@ -16,6 +16,7 @@
 // read_own_chat searches every part, the condensed messages included.
 import { randomUUID } from 'node:crypto'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import { actFields, isActCall } from './acts.js'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
 import { assembleLlmStream } from './models.js'
@@ -1634,8 +1635,43 @@ export function install(rt) {
   // Earlier parts of a Bot's own chat, newest page first, for the chat to show above
   // the current part as one conversation.
   const EARLIER_PAGE = 60
+  // Team action calls seen lately, by Session and call id: the feed reads one event
+  // at a time, and a tool/result names only the call it answers.
+  const ACT_CALLS_KEPT = 200
+  const actCalls = new Map()
+  const noteActCall = (key, entry) => {
+    actCalls.delete(key)
+    actCalls.set(key, entry)
+    if (actCalls.size > ACT_CALLS_KEPT) actCalls.delete(actCalls.keys().next().value)
+  }
+  const callArgs = (raw) => {
+    if (typeof raw !== 'string') return raw !== null && typeof raw === 'object' ? raw : {}
+    try {
+      const parsed = JSON.parse(raw)
+      return parsed !== null && typeof parsed === 'object' ? parsed : {}
+    } catch {
+      return {}
+    }
+  }
+  // How a page names the Bots, groups and apps its team actions touched.
+  const actScope = (partId) => {
+    const selfId = rt.selfOf(partId)
+    let steps
+    return {
+      selfId,
+      roomId: rt.groupOwners.get(partId)?.roomId ?? rt.pastOwners.get(partId)?.roomId,
+      findBot: ref => (ref === undefined || ref === null || ref === '' ? undefined : rt.findBot(String(ref))),
+      findRoom: ref => (ref === undefined || ref === null || ref === '' ? undefined : rt.findRooms(String(ref))[0]),
+      appOf: (callId) => {
+        steps ??= rt.computerLive?.().bots?.[selfId]?.steps ?? []
+        return steps.find(step => step.callId === callId)?.app
+      },
+    }
+  }
   function displayItems(partId, events, session, seedTurn) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
+    // Team actions by call id: an item where the call is, settled by its result.
+    const acts = new Map()
     // Files a turn presented, attached to its closing Bot row so the phone can save
     // them: the card shows name and type, the save action names seq and index.
     const presented = []
@@ -1677,6 +1713,15 @@ export function install(rt) {
         // A group_relay call's result is paired back to it by call id — the tool
         // name is on the call, never on the result.
         if (event.data?.name === 'group_relay') relayCalls.add(event.data?.callId)
+        if (isActCall(event.data?.name)) {
+          if (hidden.has(event.data?.turn ?? turn)) continue
+          const call = { name: event.data.name, args: callArgs(event.data?.arguments), callId: event.data?.callId ?? null }
+          const item = { kind: 'act', callId: call.callId, time: event.time }
+          stamp(event, item)
+          acts.set(call.callId, { item, call })
+          if (call.callId !== null) noteActCall(`${partId}:${call.callId}`, { call, seq: item.seq, turn: item.turn, time: event.time })
+          continue
+        }
         // Hidden turns and refused calls never showed a display card. Closed cards
         // stay at the call that asked them, including in a hidden Bot-to-Bot turn.
         const named = event.data?.name
@@ -1704,6 +1749,21 @@ export function install(rt) {
         // calls whose results hold the round's replies — the group's conversation,
         // read the way the live chat reads a settled call (shared/group-replies.js).
         const message = event.data?.message
+        const callId = message?.toolCallId ?? message?.source?.callId ?? null
+        const settled = { text: textOf(message?.content), isError: message?.isError === true, code: event.data?.error?.code, content: message?.content }
+        if (acts.has(callId)) {
+          acts.get(callId).result = settled
+          continue
+        }
+        // The feed's single event: the call came in an earlier one.
+        const seen = events.length === 1 && callId !== null ? actCalls.get(`${partId}:${callId}`) : undefined
+        if (seen !== undefined) {
+          if (hidden.has(seen.turn)) continue
+          const item = { kind: 'act', callId, ...(seen.seq === undefined ? {} : { seq: seen.seq }), ...(seen.turn === undefined ? {} : { turn: seen.turn }), time: seen.time }
+          items.push(item)
+          acts.set(callId, { item, call: seen.call, result: settled })
+          continue
+        }
         if (!relayCalls.has(message?.toolCallId)) continue
         const text = textOf(message?.content)
         const range = relayRange(text)
@@ -1718,6 +1778,21 @@ export function install(rt) {
           else if (reply.kind === undefined) items.push({ kind: 'post', botId: reply.botId ?? null, name: reply.name ?? null, texts, ...(claims === undefined ? {} : { claims }), ...(reply.changes === undefined ? {} : { changes: reply.changes }), ...item, ...(duration === undefined ? {} : { duration }) })
           else items.push({ kind: 'relay', reply, ...item })
         }
+        continue
+      }
+      // A run_code program's own calls: each dispatch names its tool and arguments.
+      if (event.type === 'tool/ptc-dispatch-start' || event.type === 'tool/ptc-dispatch') {
+        const data = event.data ?? {}
+        if (!isActCall(data.name) || hidden.has(turn)) continue
+        const callId = data.subCallId ?? null
+        let entry = acts.get(callId)
+        if (entry === undefined) {
+          const item = { kind: 'act', callId, time: event.time }
+          stamp(event, item)
+          entry = { item, call: { name: data.name, args: callArgs(data.arguments), callId } }
+          acts.set(callId, entry)
+        }
+        if (event.type === 'tool/ptc-dispatch') entry.result = { text: textOf(data.content), isError: data.isError === true, code: data.error?.code, content: data.content }
         continue
       }
       if (event.type !== 'user/message') continue
@@ -1754,6 +1829,16 @@ export function install(rt) {
         stamp(event, { kind: 'event', role: source.role, botId: source.senderSessionId ?? null, name: source.senderName ?? null, roomId: source.roomId ?? null, time: event.time })
       }
     }
+    // An action shows once it says something: a Bot made or changed, a memory
+    // change, a message sent, a computer step.
+    const scope = acts.size > 0 ? actScope(partId) : undefined
+    const quiet = new Set()
+    for (const { item, call, result } of acts.values()) {
+      const fields = actFields(call, result, scope)
+      if (fields === undefined) quiet.add(item)
+      else Object.assign(item, fields)
+    }
+    if (quiet.size > 0) items.splice(0, items.length, ...items.filter(item => !quiet.has(item)))
     for (const entry of presented) {
       const owner = [...items].reverse().find(item => item.turn === entry.turn && (item.kind === 'bot' || item.kind === 'post'))
       if (owner === undefined) continue
