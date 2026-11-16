@@ -22,6 +22,7 @@ import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './cons
 import { assembleLlmStream } from './models.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
+import { recalledAt } from './recall.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
 import { viaOf } from '../shared/im-platforms.js'
@@ -390,6 +391,7 @@ export function install(rt) {
     // Read backwards, a Bot's answers come before the message they answer.
     let answers = []
     for await (const event of rt.eventsBackwards(sessionId, signal, pages)) {
+      if (rt.recalledAt?.(sessionId, event.seq) !== undefined) continue
       const entry = historyEntry(event, group)
       if (entry === undefined) continue
       if (entry.answer) {
@@ -1331,6 +1333,11 @@ export function install(rt) {
     }
     const place = placeOf(agent.id)
     if (place === undefined) return next()
+    // A recall is cutting this part's history (recall.js): the input waits for it.
+    if (rt.isRecalling?.(agent.id)) {
+      restore(agent, payload.messages)
+      return takeOverStep(agent, payload)
+    }
     adoptCompaction(agent)
     const job = switches.get(agent.id)
     if (job !== undefined) {
@@ -1690,7 +1697,12 @@ export function install(rt) {
       if (turn !== undefined) item.turn = turn
       items.push(item)
     }
+    const recalls = rt.recallsOf?.(partId) ?? []
     for (const event of events) {
+      // A recalled message leaves one line where it was; what came after it is gone.
+      const recalled = recalledAt(recalls, event.seq)
+      if (recalled === 'message') stamp(event, { kind: 'recalled', time: event.time })
+      if (recalled !== undefined) continue
       if (event.type === 'turn/start') {
         if (typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn)) turn = event.data.turn
         continue
@@ -1937,9 +1949,11 @@ export function install(rt) {
   // `steps: true`. Interactive calls stay out: they show as cards, not steps.
   function stepsItems(events, partId) {
     const hidden = new Set(state.exchangeTurns[partId] ?? [])
+    const recalls = rt.recallsOf?.(partId) ?? []
     const byTurn = new Map()
     let turn
     for (const event of events) {
+      if (recalledAt(recalls, event.seq) !== undefined) continue
       if (event.type === 'turn/start') {
         if (typeof event.data?.turn === 'number' && Number.isInteger(event.data.turn)) turn = event.data.turn
         continue
@@ -2005,6 +2019,8 @@ export function install(rt) {
     if (!tails.has(sessionId)) { tails.set(sessionId, null); void fillTail(sessionId); return undefined }
     return tails.get(sessionId) ?? undefined
   }
+  // A recall can take the newest line away; the next read finds the one before it.
+  rt.forgetChatTail = (sessionId) => { tails.delete(sessionId) }
   ctx.on('session/event', (session, event) => {
     if (!tails.has(session.id)) return
     try {
@@ -2082,5 +2098,10 @@ export function install(rt) {
     return true
   }
 
-  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, switchPart, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
+  // Input a recall held off goes on once the recall is in.
+  const wakeInput = (agent) => {
+    try { wake(agent) } catch (error) { rt.warn('ds-bot: part %s could not be woken for its kept input: %s', agent.id, error) }
+  }
+
+  Object.assign(rt, { clock, partsOf, historyEntry, partLines, noteText, earlierPage, chatPage, displayItems, applySteps, followFolder, followEngine, heldBack, newPart, switchPart, wakeInput, sessionTokens: session => tokensOf(session), switchJobs: () => switches.values() })
 }

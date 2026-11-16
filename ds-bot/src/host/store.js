@@ -20,7 +20,7 @@ export function install(rt) {
   const { ctx, home, statePath } = rt
 
   /** @type {{version:1, workspaceId?:string, mainBotIds:string[], bots:Record<string,any>, privateArchives:any[], rooms:Record<string,any>, agents:Record<string,any>, sections:any[], capabilities:{items:Record<string,any>}, exchanges:any[], exchangeTurns:Record<string,number[]>, revision:number}} */
-  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, prefs: {}, switching: {}, revision: 0 }
+  const state = { version: 1, mainBotIds: [], bots: {}, privateArchives: [], rooms: {}, agents: {}, sections: [], capabilities: { items: {} }, exchanges: [], exchangeTurns: {}, works: {}, requests: {}, questions: {}, views: {}, closedCards: {}, recalls: {}, prefs: {}, switching: {}, revision: 0 }
   let loaded = null
   let writing = Promise.resolve()
   const { warn } = rt
@@ -200,6 +200,8 @@ export function install(rt) {
     }
     if (state.views === null || typeof state.views !== 'object' || Array.isArray(state.views)) state.views = {}
     if (state.closedCards === null || typeof state.closedCards !== 'object' || Array.isArray(state.closedCards)) state.closedCards = {}
+    // Recalled ranges of each Bot's own-chat part (recall.js).
+    if (state.recalls === null || typeof state.recalls !== 'object' || Array.isArray(state.recalls)) state.recalls = {}
     // LEGACY: v0.3.2 kept closed dock views here, pinning them above the composer.
     if ('closedViews' in state) {
       delete state.closedViews

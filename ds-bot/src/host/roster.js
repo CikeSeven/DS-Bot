@@ -957,6 +957,7 @@ export function install(rt) {
         if (state.views !== undefined) delete state.views[part]
         if (state.closedCards !== undefined) delete state.closedCards[part]
         delete state.exchangeTurns[part]
+        if (state.recalls !== undefined) delete state.recalls[part]
         delete state.switching[part]
       }
       const touched = []

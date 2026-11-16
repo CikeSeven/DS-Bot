@@ -54,6 +54,7 @@ export const CAPABILITIES = [
   'thinking-text',
   'chat-acts',
   'shown-images',
+  'recall',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
 

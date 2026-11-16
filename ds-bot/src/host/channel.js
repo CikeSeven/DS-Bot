@@ -97,6 +97,8 @@ export function install(rt) {
     // Deleted private Bots whose folder, memory and chats stay closed to the others.
     privateArchives: rt.archivesView(),
     exchangeTurns: state.exchangeTurns,
+    // Recalled ranges of each Bot's own-chat part; the chat hides them.
+    recalls: state.recalls ?? {},
     questions: state.questions,
     views: state.views ?? {},
     closedCards: state.closedCards ?? {},
@@ -755,6 +757,14 @@ export function install(rt) {
           })
           for (const id of ids) staged.delete(id)
           return ok(true)
+        }
+        // Recalling one of the user's messages in a Bot's own chat (recall.js): the check
+        // says which files the turns after it changed, so the window can warn first.
+        case 'recall-check':
+        case 'recall': {
+          if (typeof body.sessionId !== 'string' || !Number.isInteger(body.seq)) return fail('No message named', 'bot/invalid')
+          const request = { botId: String(body.botId ?? ''), sessionId: body.sessionId, seq: body.seq, ...(Number.isFinite(body.time) ? { time: body.time } : {}) }
+          return ok(endpoint === 'recall' ? await rt.recall(request) : await rt.recallCheck(request))
         }
         case 'btw-delete': {
           if (typeof body.sessionId !== 'string' || body.sessionId === '' || typeof body.cardId !== 'string' || body.cardId === '') return fail('Nothing to delete', 'bot/invalid')
