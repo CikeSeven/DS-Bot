@@ -104,7 +104,7 @@ class BotAvatar extends StatelessWidget {
             Positioned(
               right: -2,
               top: -2,
-              child: SizedBox.square(dimension: star, child: const _MainStar()),
+              child: SizedBox.square(dimension: star, child: const MainStar()),
             ),
         ],
       ),
@@ -170,8 +170,9 @@ class _PulseState extends State<_Pulse> with SingleTickerProviderStateMixin {
   }
 }
 
-class _MainStar extends StatelessWidget {
-  const _MainStar();
+/// The Main Bot star: white on orange, ringed in the page color.
+class MainStar extends StatelessWidget {
+  const MainStar({super.key});
 
   @override
   Widget build(BuildContext context) {
