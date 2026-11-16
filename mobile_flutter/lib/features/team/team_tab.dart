@@ -1,5 +1,5 @@
-// The team at a glance: what needs you, the Main Bots, then every Bot and group
-// chat by section. Rows slide for quick actions and long-press for more.
+// The team at a glance: the first Main Bot, what needs you, then every Bot and
+// group chat by section. Rows slide for quick actions and long-press for more.
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -24,6 +24,7 @@ import '../manage/bot_pages.dart';
 import '../manage/group_pages.dart';
 import '../search/search_page.dart';
 import '../settings/computers_page.dart';
+import 'main_hero.dart';
 
 class TeamTab extends StatefulWidget {
   const TeamTab({super.key});
@@ -68,10 +69,10 @@ class _TeamTabState extends State<TeamTab> {
                   physics: const AlwaysScrollableScrollPhysics(parent: BouncingScrollPhysics()),
                   slivers: [
                     SliverPadding(padding: EdgeInsets.only(top: MediaQuery.paddingOf(context).top + 4)),
+                    SliverToBoxAdapter(child: MainHero(team: team, pending: pending, unread: _firstMainUnread(team, session))),
                     if (!session.online) SliverToBoxAdapter(child: _OfflineLine(session: session)),
                     if (team.readOnly != null) SliverToBoxAdapter(child: _ReadOnlyLine(reason: team.readOnly!)),
                     if (pending.isNotEmpty) SliverToBoxAdapter(child: _NeedsStrip(items: pending, team: team)),
-                    SliverToBoxAdapter(child: _MainTiles(team: team, pending: pending)),
                     ..._lists(context, team, pending, session),
                     SliverPadding(padding: EdgeInsets.only(bottom: tabBarClearance(context) + 12)),
                   ],
@@ -81,13 +82,19 @@ class _TeamTabState extends State<TeamTab> {
     );
   }
 
+  bool _firstMainUnread(TeamState team, TeamSession session) {
+    final bot = team.bot(team.mainBotIds.firstOrNull);
+    return bot != null && AppScope.read(context).seen.isUnread(session.computer.hostDeviceId, bot.id, bot.lastAt);
+  }
+
   List<Widget> _lists(BuildContext context, TeamState team, List<PendingItem> pending, TeamSession session) {
     final app = AppScope.read(context);
     final hostId = session.computer.hostDeviceId;
-    final mains = team.mainBotIds.toSet();
+    // The first Main Bot heads the page; the others are rows with the star.
+    final first = team.mainBotIds.firstOrNull;
     final entries = <_Entry>[
       for (final bot in team.bots)
-        if (!mains.contains(bot.id)) _Entry.bot(bot),
+        if (bot.id != first) _Entry.bot(bot, main: team.isMain(bot.id)),
       for (final room in team.rooms) _Entry.room(room),
     ];
     int when(_Entry entry) => entry.lastAt ?? entry.createdAt ?? 0;
@@ -174,18 +181,23 @@ class _TeamTabState extends State<TeamTab> {
 }
 
 class _Entry {
-  _Entry.bot(Bot this.bot) : room = null;
-  _Entry.room(Room this.room) : bot = null;
+  _Entry.bot(Bot this.bot, {this.main = false}) : room = null;
+  _Entry.room(Room this.room)
+      : bot = null,
+        main = false;
 
   final Bot? bot;
   final Room? room;
+
+  /// A Main Bot other than the first. Like the desktop, it is never hidden.
+  final bool main;
 
   String get id => bot?.id ?? room!.id;
   String get name => bot?.name ?? room!.name;
   int? get lastAt => bot?.lastAt ?? room?.lastAt;
   int? get createdAt => bot?.createdAt ?? room?.createdAt;
   bool get pinned => bot?.pinned ?? room!.pinned;
-  bool get hidden => bot?.hidden ?? room!.hidden;
+  bool get hidden => !main && (bot?.hidden ?? room!.hidden);
   String? get sectionId => bot?.sectionId ?? room?.sectionId;
 }
 
@@ -332,60 +344,6 @@ class _NeedsStrip extends StatelessWidget {
   }
 }
 
-class _MainTiles extends StatelessWidget {
-  const _MainTiles({required this.team, required this.pending});
-
-  final TeamState team;
-  final List<PendingItem> pending;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.p;
-    final mains = team.mainBotIds.map(team.bot).whereType<Bot>().toList();
-    if (mains.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-      child: Row(children: [
-        for (final (index, bot) in mains.take(3).indexed) ...[
-          if (index > 0) const SizedBox(width: 10),
-          Expanded(
-            child: Pressable(
-              onTap: () => openChat(context, botId: bot.id),
-              onLongPress: () => openBotDetails(context, bot.id),
-              child: Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(color: p.card.withValues(alpha: 0.9), borderRadius: BorderRadius.circular(Radii.dialog), border: Border.all(color: p.line)),
-                child: Row(children: [
-                  BotAvatar(
-                    bot: bot,
-                    size: mains.length == 1 ? 48 : 40,
-                    main: true,
-                    working: team.botWorking(bot.id),
-                    waiting: botHasPending(pending, bot.id),
-                    ring: p.card,
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Text(bot.name, maxLines: 1, overflow: TextOverflow.ellipsis, style: TypeScale.rowNameStrong.copyWith(color: p.ink)),
-                      Text(
-                        team.botWorking(bot.id) ? workPhrase(team.workBots[bot.id]) : (bot.role ?? t('Main Bot')),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TypeScale.caption.copyWith(color: team.botWorking(bot.id) ? Palette.green : p.ink2),
-                      ),
-                    ]),
-                  ),
-                ]),
-              ),
-            ),
-          ),
-        ],
-      ]),
-    );
-  }
-}
-
 class _Header extends StatelessWidget {
   const _Header({required this.title, this.icon, this.count, this.collapsed, this.onTap, this.color});
 
@@ -444,13 +402,7 @@ class _TeamRow extends StatelessWidget {
   String _preview() {
     final bot = entry.bot;
     final room = entry.room;
-    if (bot != null) {
-      if (team.questions.containsKey(bot.chatSession)) return t('Waiting for your answer');
-      if (pending.any((item) => item.kind == PendingKind.approval && item.botId == bot.id && item.roomId == null)) return t('Waiting for your approval');
-      final doing = team.workBots[bot.id];
-      if (doing != null) return workPhrase(doing);
-      return cleanPreview(bot.preview) ?? bot.role ?? '';
-    }
+    if (bot != null) return botLine(team, pending, bot).text ?? bot.role ?? '';
     if (roomHasPending(pending, room!.id)) return t('Waiting for your approval');
     final work = team.roomWork(room.id);
     if (work.isNotEmpty) return '${team.bot(jStr(work.first, 'botId'))?.name ?? ''} · ${workPhrase(work.first)}';
@@ -473,7 +425,8 @@ class _TeamRow extends StatelessWidget {
       ],
       trailing: [
         SwipeAction(icon: entry.pinned ? AppIcon.unpin : AppIcon.pin, label: entry.pinned ? t('Unpin') : t('Pin'), color: Palette.star, run: () => _flag(context, pinned: !entry.pinned)),
-        SwipeAction(icon: entry.hidden ? AppIcon.eye : AppIcon.eyeOff, label: entry.hidden ? t('Show') : t('Hide'), color: p.ink3, run: () => _flag(context, hidden: !entry.hidden)),
+        if (!entry.main)
+          SwipeAction(icon: entry.hidden ? AppIcon.eye : AppIcon.eyeOff, label: entry.hidden ? t('Show') : t('Hide'), color: p.ink3, run: () => _flag(context, hidden: !entry.hidden)),
       ],
       child: InkWell(
         onTap: () => bot != null ? openChat(context, botId: bot.id) : openChat(context, roomId: room!.id),
@@ -482,7 +435,7 @@ class _TeamRow extends StatelessWidget {
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
           child: Row(children: [
             if (bot != null)
-              BotAvatar(bot: bot, size: 48, working: working, waiting: waiting)
+              BotAvatar(bot: bot, size: 48, working: working, waiting: waiting, main: entry.main)
             else
               RoomAvatar(room: room!, team: team, size: 48, working: working, waiting: waiting),
             const SizedBox(width: 12),
@@ -536,7 +489,7 @@ class _TeamRow extends StatelessWidget {
       context,
       [
         MenuAction(entry.pinned ? t('Unpin') : t('Pin'), entry.pinned ? AppIcon.unpin : AppIcon.pin, () => _flag(context, pinned: !entry.pinned)),
-        MenuAction(entry.hidden ? t('Show') : t('Hide'), entry.hidden ? AppIcon.eye : AppIcon.eyeOff, () => _flag(context, hidden: !entry.hidden)),
+        if (!entry.main) MenuAction(entry.hidden ? t('Show') : t('Hide'), entry.hidden ? AppIcon.eye : AppIcon.eyeOff, () => _flag(context, hidden: !entry.hidden)),
         MenuAction(t('Mark as read'), AppIcon.check, () => _markRead(context)),
         if ((team?.sections ?? const []).isNotEmpty) MenuAction(t('Move to section'), AppIcon.section, () => moveToSection(context, entry.id, entry.sectionId)),
         if (working)
