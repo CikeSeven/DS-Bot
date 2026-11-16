@@ -435,11 +435,51 @@ export function install(rt) {
   const startCall = (id, entry, callId, name, args) => {
     if (typeof callId === 'string') (entry.calls ??= new Map()).set(callId, { name, args })
     showCall(id, entry)
+    rt.noteWork?.()
   }
   const endCall = (id, entry, callId) => {
     entry.calls?.delete(callId)
     showCall(id, entry)
+    rt.noteWork?.()
   }
+
+  // Calls the model is still writing, by call id. A call's name comes in its first
+  // chunk and its arguments after it, so a long write shows from its start rather than
+  // once the whole file has streamed. Only the head of the arguments is kept: the
+  // description and the path come before the content.
+  const DRAFT_HEAD = 4096
+  const DRAFT_FIELDS = /"(description|justification|file_path|path|url|query|pattern)"\s*:\s*"((?:[^"\\]|\\.)*)"/g
+  const draftArgs = (head) => {
+    const args = {}
+    for (const [, key, raw] of head.matchAll(DRAFT_FIELDS)) {
+      if (args[key] !== undefined) continue
+      try { args[key] = JSON.parse(`"${raw}"`) } catch { /* cut inside an escape */ }
+    }
+    return args
+  }
+  const dropDrafts = (entry) => {
+    if (entry.drafts === undefined) return
+    entry.drafts = undefined
+    rt.noteWork?.()
+  }
+  ctx.on('agent/assistant-stream', ({ agent, frame }) => {
+    const entry = live.get(agent?.id)
+    if (entry?.turn === undefined) return
+    if (frame?.type === 'start') return dropDrafts(entry)
+    const chunk = frame?.type === 'chunk' ? frame.chunk : undefined
+    if (chunk?.type !== 'tool-call-delta' || typeof chunk.id !== 'string') return
+    const drafts = entry.drafts ??= new Map()
+    let draft = drafts.get(chunk.id)
+    if (draft === undefined) drafts.set(chunk.id, draft = { head: '', shown: '' })
+    if (typeof chunk.name === 'string' && chunk.name !== '') draft.name ??= chunk.name
+    if (draft.head.length < DRAFT_HEAD && typeof chunk.argumentsDelta === 'string') draft.head = (draft.head + chunk.argumentsDelta).slice(0, DRAFT_HEAD)
+    else if (draft.shown !== '') return
+    if (draft.name === undefined) return
+    const shown = JSON.stringify(describeCall(draft.name, draftArgs(draft.head)))
+    if (shown === draft.shown) return
+    draft.shown = shown
+    rt.noteWork?.()
+  })
 
   const markExchangeTurn = (sessionId, turn) => {
     const turns = state.exchangeTurns[sessionId] ??= []
@@ -555,14 +595,8 @@ export function install(rt) {
     return merged
   }
 
-  // What the newest running call does, in its own words: what the Bot said in the step
-  // that made it, the call's description, or the file, search or site it works on.
-  const doingOf = (entry) => {
-    const call = [...(entry.calls?.values() ?? [])].at(-1)
-    if (call === undefined) return {}
-    const said = entry.step?.replace(/\s+/g, ' ').trim().slice(0, 160)
-    let args
-    try { args = JSON.parse(call.args || '{}') } catch { args = {} }
+  // A call in its own words: its description, or the file, search or site it works on.
+  function describeCall(name, args) {
     const first = keys => keys.map(key => args?.[key]).find(value => typeof value === 'string' && value.trim() !== '')?.replace(/\s+/g, ' ').trim()
     const note = first(['description', 'justification'])
     const path = first(['file_path', 'path'])
@@ -570,7 +604,22 @@ export function install(rt) {
     let site
     try { site = url && new URL(url).host } catch { site = undefined }
     const target = path?.split(/[\\/]/).filter(Boolean).at(-1) ?? first(['query', 'pattern']) ?? site
-    return { tool: call.name, ...(said ? { said } : {}), ...(note ? { note: note.slice(0, 120) } : {}), ...(target ? { target: target.slice(0, 80) } : {}) }
+    return { tool: name, ...(note ? { note: note.slice(0, 120) } : {}), ...(target ? { target: target.slice(0, 80) } : {}) }
+  }
+
+  // What the newest running call does, with what the Bot said in the step that made it;
+  // else the call the model is writing now. `call` names the call, so a window can tell
+  // a new step from the same one gaining its description or path.
+  const doingOf = (entry) => {
+    const [callId, call] = [...(entry.calls?.entries() ?? [])].at(-1) ?? []
+    if (call === undefined) {
+      const [draftId, draft] = [...(entry.drafts?.entries() ?? [])].findLast(([, item]) => item.name !== undefined) ?? []
+      return draft === undefined ? {} : { ...describeCall(draft.name, draftArgs(draft.head)), call: draftId }
+    }
+    const said = entry.step?.replace(/\s+/g, ' ').trim().slice(0, 160)
+    let args
+    try { args = JSON.parse(call.args || '{}') } catch { args = {} }
+    return { ...describeCall(call.name, args), call: callId, ...(said ? { said } : {}) }
   }
 
   // Per Bot, the turn it is running and what it is doing; its own chat wins over a
@@ -823,6 +872,8 @@ export function install(rt) {
       }
       case 'tool/call': {
         const name = String(event.data?.name ?? '')
+        // The message is whole; its calls now run one by one.
+        entry.drafts = undefined
         startCall(id, entry, event.data?.callId, name, String(event.data?.arguments ?? ''))
         // A program is as quick as the tools it runs, so its sub-calls decide.
         if (name !== PROGRAM_TOOL) {
@@ -846,6 +897,7 @@ export function install(rt) {
         break
       case 'turn/start':
         setActivity(id, 'thinking')
+        entry.drafts = undefined
         entry.turn = event.data.turn
         entry.since = event.time ?? Date.now()
         entry.texts = []
@@ -1088,6 +1140,7 @@ export function install(rt) {
         entry.lastText = text
         entry.lastCalled = called
         entry.step = called && text !== HANDOFF_ACK ? stripWrittenCalls(text) || undefined : undefined
+        if (!called) dropDrafts(entry)
         break
       }
       case 'turn/end': {
@@ -1131,6 +1184,7 @@ export function install(rt) {
         entry.steeredAt = undefined
         entry.tool = undefined
         entry.calls = undefined
+        entry.drafts = undefined
         entry.lastText = undefined
         entry.lastCalled = undefined
         entry.usage = undefined

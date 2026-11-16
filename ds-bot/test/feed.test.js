@@ -96,7 +96,8 @@ test('the live feed tells a window about saves, new chat entries and the reply b
   onEvent({ id: 'm1' }, userMessage('old', 1))
   onEvent({ id: 'm1c' }, botMessage('hidden', 61, 7))
 
-  const [onStream] = ctx.listeners.get('agent/assistant-stream')
+  // turns.js listens first, for the calls the model is writing; the feed's own is last.
+  const onStream = ctx.listeners.get('agent/assistant-stream').at(-1)
   const agent = { id: 'm1c' }
   onStream({ agent, frame: { type: 'start', attemptId: 'a7', turn: 7 } })
   onStream({ agent, frame: { type: 'chunk', attemptId: 'a7', chunk: { type: 'text-delta', text: 'hidden' } } })

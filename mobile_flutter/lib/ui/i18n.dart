@@ -136,28 +136,74 @@ String shortWhen(int ms, [int? nowMs]) {
 
 final _trailingStops = RegExp(r'[\s.。…]+$');
 
-/// What a Bot says it is doing: its running call's own description, else the
-/// words of the step that made the call. The description comes first because
-/// those words already show as a bubble above.
-String? workNote(Object? doing) {
-  if (doing is! Map) return null;
-  for (final key in const ['note', 'said']) {
-    final value = doing[key];
-    if (value is! String) continue;
-    final text = value.replaceAll(_trailingStops, '').trim();
-    if (text.isNotEmpty) return text;
-  }
-  return null;
+String? _clean(Object? value) {
+  if (value is! String) return null;
+  final text = value.replaceAll(_trailingStops, '').trim();
+  return text.isEmpty ? null : text;
 }
 
-/// What a Bot is doing, in its own words. Tools are never named: without a
-/// description it is only thinking or working.
+/// What a tool does, read from its name, for the calls that carry no
+/// description of their own: the desktop's toolActivity (cells.js) plus DSH's
+/// own tools. The first match wins, so exact names come before broad patterns.
+final _toolPhrases = <(RegExp, String Function())>[
+  (RegExp(r'^ask_user_question$'), () => t('Waiting for your answer')),
+  (RegExp(r'^list_secrets$'), () => t('Checking the keys')),
+  (RegExp(r'^message_bot$'), () => t('Asking another Bot')),
+  (RegExp(r'^stop_bot$'), () => t('Stopping another Bot')),
+  (RegExp(r'^create_bot$'), () => t('Creating a Bot')),
+  (RegExp(r'^update_bot$'), () => t('Updating a Bot')),
+  (RegExp(r'^list_bots$'), () => t('Checking the team')),
+  (RegExp(r'^read_group_chat$'), () => t('Reading a group chat')),
+  (RegExp(r'^read_own_chat$'), () => t('Looking back through the chat')),
+  (RegExp(r'^create_group$'), () => t('Creating a group')),
+  (RegExp(r'^update_group$'), () => t('Updating the group')),
+  (RegExp(r'^delete_group$'), () => t('Deleting the group')),
+  (RegExp(r'^post_to_group$'), () => t('Posting in the group')),
+  (RegExp(r'^remember$'), () => t('Saving to memory')),
+  (RegExp(r'^forget$'), () => t('Updating memory')),
+  (RegExp(r'^recall$'), () => t('Checking memory')),
+  (RegExp(r'^todo_write$'), () => t('Updating the to-do list')),
+  (RegExp(r'^skill$'), () => t('Using a skill')),
+  (RegExp(r'^schedule_'), () => t('Setting up a scheduled task')),
+  (RegExp(r'^session_'), () => t('Looking through past conversations')),
+  (RegExp(r'^job_'), () => t('Checking a background job')),
+  (RegExp(r'^cua(_driver_native__|$)|^computer_'), () => t('Using the computer')),
+  (RegExp(r'web_?search|search_?web', caseSensitive: false), () => t('Searching online')),
+  (RegExp(r'fetch|browse|browser|web', caseSensitive: false), () => t('Reading a page')),
+  (RegExp(r'shell|bash|pwsh|powershell|exec|command|terminal', caseSensitive: false), () => t('Running shell commands')),
+  (RegExp(r'^(read|view|cat)\b|read_', caseSensitive: false), () => t('Opening a file')),
+  (RegExp(r'grep|glob|list_dir|^ls$|find|search', caseSensitive: false), () => t('Looking through files')),
+  (RegExp(r'write|edit|patch|apply|replace', caseSensitive: false), () => t('Writing changes')),
+  (RegExp(r'image|photo|draw', caseSensitive: false), () => t('Working on an image')),
+];
+
+/// The step a Bot is on, as plainly as it is known: the running call's own
+/// description; else what the tool's name says it does, with the file, search
+/// or site it works on; else the words of the step that made the call. Those
+/// words come last because they already show as a bubble above. Null between
+/// calls, while the Bot thinks.
+String? workStep(Object? doing) {
+  if (doing is! Map || doing['switching'] == true) return null;
+  final note = _clean(doing['note']);
+  if (note != null) return note;
+  final tool = doing['tool'];
+  if (tool is String && tool.isNotEmpty) {
+    for (final (pattern, phrase) in _toolPhrases) {
+      if (!pattern.hasMatch(tool)) continue;
+      final target = _clean(doing['target']);
+      return target == null ? phrase() : '${phrase()} · $target';
+    }
+  }
+  return _clean(doing['said']);
+}
+
+/// What a Bot is doing, for its work bubble and status lines.
 String workPhrase(Object? doing) {
   if (doing is String) return doing == 'thinking' ? t('Thinking it over') : t('Working on it');
   final map = doing is Map ? doing : const {};
   if (map['switching'] == true) return map['folder'] == true ? t('Switching working folder') : t('Moving to a fresh conversation');
   final tool = map['tool'];
-  return workNote(map) ?? (tool is String && tool.isNotEmpty ? t('Working on it') : t('Thinking it over'));
+  return workStep(map) ?? (tool is String && tool.isNotEmpty ? t('Working on it') : t('Thinking it over'));
 }
 
 /// How long something has run, as the desktop's elapsedLabel: "12s", "3m 4s".

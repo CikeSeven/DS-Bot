@@ -1,7 +1,8 @@
 // What a Bot is doing right now, at the foot of the message list: its avatar and
-// a bubble with what it says it is doing, where its reply will land. The steps it
-// described earlier in the turn stay above, dimmed, so a long run reads as
-// progress. Tools are never named; only the Bot's own words show.
+// a bubble with the step it is on, where its reply will land. The steps done
+// earlier in the turn stay above, dimmed, so a long run reads as progress. No
+// tool details show: a step is the call's own description, or what the tool's
+// name says it does.
 import 'dart:async';
 import 'dart:math' as math;
 
@@ -20,6 +21,10 @@ const _shownSteps = 3;
 
 /// The leading column: the width of the three dots, so checks line up under them.
 const _lead = 21.0;
+
+/// How long a step stays up before the bubble goes back to thinking, so a call
+/// that ends at once can still be read. A next call replaces it right away.
+const _minStep = Duration(milliseconds: 1500);
 
 class WorkRow extends StatefulWidget {
   const WorkRow({super.key, required this.bot, required this.doing, this.name, this.onStop});
@@ -43,9 +48,15 @@ class WorkRow extends StatefulWidget {
 class _WorkRowState extends State<WorkRow> with SingleTickerProviderStateMixin {
   late final AnimationController _beat = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
 
-  /// What the Bot described earlier in this turn, oldest first. Kept here: the
-  /// computer sends only the step in hand.
+  /// The steps done earlier in this turn, oldest first. Kept here: the computer
+  /// sends only the step in hand.
   final List<String> _done = [];
+
+  /// The work entry on screen: the newest one, except while a step that just
+  /// ended is held for [_minStep].
+  late Object? _shown = widget.doing;
+  DateTime _shownAt = DateTime.now();
+  Timer? _hold;
 
   @override
   void didChangeDependencies() {
@@ -61,21 +72,55 @@ class _WorkRowState extends State<WorkRow> with SingleTickerProviderStateMixin {
   @override
   void didUpdateWidget(WorkRow old) {
     super.didUpdateWidget(old);
-    final since = _sinceOf(widget.doing);
-    final before = _sinceOf(old.doing);
+    final next = widget.doing;
+    final since = _sinceOf(next);
+    final before = _sinceOf(_shown);
     if (since != null && before != null && since != before) {
+      _cancelHold();
       _done.clear();
+      _shown = next;
+      _shownAt = DateTime.now();
       return;
     }
-    final was = workNote(old.doing);
-    if (was != null && was != workNote(widget.doing) && _done.lastOrNull != was) {
-      _done.add(was);
-      if (_done.length > 40) _done.removeAt(0);
+    if (_thinking(next) && workStep(_shown) != null) {
+      final left = _minStep - DateTime.now().difference(_shownAt);
+      if (left > Duration.zero) {
+        _hold ??= Timer(left, () {
+          _hold = null;
+          if (mounted) setState(() => _show(widget.doing));
+        });
+        return;
+      }
     }
+    _cancelHold();
+    _show(next);
+  }
+
+  /// Puts [next] on screen; the step it replaces joins the steps done. A call
+  /// that gains its description or path as it streams stays the same step.
+  void _show(Object? next) {
+    final call = _callOf(_shown);
+    final sameCall = call != null && call == _callOf(next);
+    final was = workStep(_shown);
+    final step = workStep(next);
+    if (!sameCall && (call != _callOf(next) || was != step)) {
+      if (was != null && was != step && _done.lastOrNull != was) {
+        _done.add(was);
+        if (_done.length > 40) _done.removeAt(0);
+      }
+      _shownAt = DateTime.now();
+    }
+    _shown = next;
+  }
+
+  void _cancelHold() {
+    _hold?.cancel();
+    _hold = null;
   }
 
   @override
   void dispose() {
+    _cancelHold();
     _beat.dispose();
     super.dispose();
   }
@@ -83,7 +128,7 @@ class _WorkRowState extends State<WorkRow> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final p = context.p;
-    final phrase = workPhrase(widget.doing);
+    final phrase = workPhrase(_shown);
     final since = _sinceOf(widget.doing);
     final hidden = math.max(0, _done.length - _shownSteps);
     final current = Row(mainAxisSize: MainAxisSize.min, children: [
@@ -157,6 +202,16 @@ class _WorkRowState extends State<WorkRow> with SingleTickerProviderStateMixin {
 
 int? _sinceOf(Object? doing) => jInt(doing, 'since');
 
+/// The call a work entry is about, when the computer names it.
+String? _callOf(Object? doing) => jStr(doing, 'call');
+
+/// Between calls: no tool runs and none is being written.
+bool _thinking(Object? doing) {
+  if (doing is String) return doing == 'thinking';
+  final tool = jStr(doing, 'tool');
+  return jBool(doing, 'switching') != true && (tool == null || tool.isEmpty);
+}
+
 /// The step in hand. A new one rises in as the last one rises out, into the
 /// list of steps done above it.
 class _Phrase extends StatelessWidget {
@@ -218,7 +273,7 @@ class _Shimmer extends StatelessWidget {
   }
 }
 
-/// A step the Bot described earlier in this turn.
+/// A step done earlier in this turn.
 class _DoneStep extends StatelessWidget {
   const _DoneStep({super.key, required this.text});
 
