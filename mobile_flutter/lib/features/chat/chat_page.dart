@@ -384,7 +384,6 @@ class _ChatPageState extends State<ChatPage> {
         MenuAction(t('Usage'), AppIcon.chart, () => push(context, UsagePage(botId: bot.id))),
       ],
       if (room != null) ...[
-        MenuAction(t('Group details'), AppIcon.forward, () => openGroupDetails(context, room.id)),
         MenuAction(t('Memory'), AppIcon.memory, () => push(context, MemoryPage(roomId: room.id))),
         MenuAction(room.goal == null ? t('Set a goal') : t('Group goal'), AppIcon.target, () => showGoalDraft(context, room)),
         MenuAction(t('Task board'), AppIcon.board, () => push(context, TaskBoardPage(roomId: room.id))),
