@@ -1,6 +1,7 @@
 // One row of a chat, per display item kind (parts.js displayItems, mobile.js
 // roomItems): bubbles, group posts with the member's name and color, round
 // events, folded tool steps, settled cards and answers.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
 
@@ -203,7 +204,7 @@ class ChatItemView extends StatelessWidget {
         Padding(padding: const EdgeInsets.only(top: 4), child: Text(t('{count} images', {'count': jInt(item, 'images')}), style: TypeScale.caption.copyWith(color: p.userInk.withValues(alpha: 0.8)))),
     ];
     final photosOnly = text.isEmpty && files.isEmpty && (photos.isNotEmpty || refs.isNotEmpty);
-    final bubble = _userBubble(context, p, Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: children), const [], bare: photosOnly, sending: local == 'sending');
+    final bubble = _userBubble(context, p, Column(crossAxisAlignment: CrossAxisAlignment.end, mainAxisSize: MainAxisSize.min, children: children), const [], bare: photosOnly);
     final via = jStr(item, 'via');
     if (local == 'failed' && localId != null) {
       return Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
@@ -218,12 +219,14 @@ class ChatItemView extends StatelessWidget {
         ),
       ]);
     }
-    if (row.stamp == null && via == null) return bubble;
+    final sending = local == 'sending';
+    if (row.stamp == null && via == null && !sending) return bubble;
     return Column(crossAxisAlignment: CrossAxisAlignment.end, children: [
       bubble,
       Padding(
         padding: const EdgeInsets.only(top: 3, right: 4),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (sending) ...[const _Sending(), const SizedBox(width: 5)],
           if (via != null) ...[Tag(t('via {platform}', {'platform': _platformName(via)})), const SizedBox(width: 6)],
           if (row.stamp != null) Text(row.stamp!, style: TypeScale.caption.copyWith(color: p.ink3)),
         ]),
@@ -231,21 +234,17 @@ class ChatItemView extends StatelessWidget {
     ]);
   }
 
-  Widget _userBubble(BuildContext context, Palette p, Widget content, List<Widget> extra, {bool bare = false, bool sending = false}) {
+  Widget _userBubble(BuildContext context, Palette p, Widget content, List<Widget> extra, {bool bare = false}) {
     final wide = hasBlockContent(jStr(item, 'text') ?? '');
     return Align(
       alignment: Alignment.centerRight,
       child: GestureDetector(
         onLongPress: () => onLongPress(row),
-        child: AnimatedOpacity(
-          opacity: sending ? 0.7 : 1,
-          duration: const Duration(milliseconds: 200),
-          child: Container(
-            constraints: BoxConstraints(maxWidth: userMax, minWidth: wide ? userMax : 0),
-            padding: bare ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
-            decoration: bare ? null : BoxDecoration(color: p.user, borderRadius: BorderRadius.circular(Radii.bubble).copyWith(bottomRight: const Radius.circular(6))),
-            child: content,
-          ),
+        child: Container(
+          constraints: BoxConstraints(maxWidth: userMax, minWidth: wide ? userMax : 0),
+          padding: bare ? EdgeInsets.zero : const EdgeInsets.symmetric(horizontal: 13, vertical: 8),
+          decoration: bare ? null : BoxDecoration(color: p.user, borderRadius: BorderRadius.circular(Radii.bubble).copyWith(bottomRight: const Radius.circular(6))),
+          child: content,
         ),
       ),
     );
@@ -384,6 +383,43 @@ class _ChangesChip extends StatelessWidget {
           ]),
         ),
       ),
+    );
+  }
+}
+
+/// A small spinner beside a message still on its way, shown only when the
+/// trip is slow enough to notice.
+class _Sending extends StatefulWidget {
+  const _Sending();
+
+  @override
+  State<_Sending> createState() => _SendingState();
+}
+
+class _SendingState extends State<_Sending> {
+  bool _shown = false;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer(const Duration(milliseconds: 700), () {
+      if (mounted) setState(() => _shown = true);
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedOpacity(
+      opacity: _shown ? 1 : 0,
+      duration: const Duration(milliseconds: 200),
+      child: SizedBox.square(dimension: 11, child: CircularProgressIndicator(strokeWidth: 1.4, color: context.p.ink3)),
     );
   }
 }

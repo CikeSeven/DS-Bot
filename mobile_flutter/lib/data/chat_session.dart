@@ -47,13 +47,16 @@ class OutgoingFile {
 }
 
 class _Outgoing {
-  _Outgoing(this.item, this.photos, this.files, this.sessionId);
+  _Outgoing(this.item, this.photos, this.files, this.sessionId, this.known);
 
   Json item;
   final List<OutgoingPhoto> photos;
   final List<OutgoingFile> files;
   final String sessionId;
-  Set<String>? known;
+
+  /// The row keys the chat held when the message was written: only a row the
+  /// chat shows after them can be this message coming back.
+  final Set<String> known;
 }
 
 class ChatRow {
@@ -136,7 +139,7 @@ class ChatSession extends ChangeNotifier {
         ChatRow(
           item,
           keys[index],
-          room || item['local'] != null ? null : stampOf(all, index),
+          room ? null : stampOf(all, index),
           photos: photosByLocal[jStr(item, 'localId')] ?? const [],
         ),
     ];
@@ -281,6 +284,10 @@ class ChatSession extends ChangeNotifier {
           final seq = item['seq'];
           if (seq == null || !page.items.any((entry) => entry['seq'] == seq)) {
             _page = page.withItems([...page.items, item]);
+            // The computer tells of the message before `send` answers: swap the
+            // local row for it in the same frame, so it never shows twice.
+            _keep();
+            _settleOutbox();
             _changed();
           }
           final time = jInt(item, 'time');
@@ -341,6 +348,7 @@ class ChatSession extends ChangeNotifier {
       photos,
       files,
       sessionId,
+      keysOf(items).toSet(),
     );
     _outbox.putIfAbsent(chatKey, () => []).add(entry);
     _changed();
@@ -379,11 +387,6 @@ class ChatSession extends ChangeNotifier {
       if (files.isNotEmpty) {
         await team.call('send', {'sessionId': entry.sessionId, 'text': images.isEmpty ? text : '', 'files': files});
       }
-      // What the chat already holds, so only a new row of the same text counts as this one.
-      final cached = _pages.get(key);
-      final all = [...?cached?.older, ...?cached?.page.items];
-      entry.known = keysOf(all).toSet();
-      mark('sending');
       for (final chat in _live) {
         if (chat.chatKey == key) unawaited(chat.refresh());
       }
@@ -432,20 +435,28 @@ class ChatSession extends ChangeNotifier {
     _changed();
   }
 
-  /// A sent message leaves the outbox once the chat shows a new row with its text.
+  /// A sent message leaves the outbox once the chat shows it back: a user row
+  /// with its text, below every row the chat held when it was written. A row
+  /// settles one message only, so the same text sent twice waits for two rows.
   void _settleOutbox() {
     final pending = _outbox[chatKey];
     if (pending == null || pending.isEmpty) return;
     final all = items;
     final keys = keysOf(all);
-    pending.removeWhere((entry) {
-      final known = entry.known;
-      if (known == null) return false;
-      for (final (index, item) in all.indexed) {
-        if (!known.contains(keys[index]) && sameMessage(item, entry.item)) return true;
+    for (final entry in [...pending]) {
+      var index = all.length - 1;
+      while (index >= 0 && !entry.known.contains(keys[index])) {
+        index--;
       }
-      return false;
-    });
+      for (index++; index < all.length; index++) {
+        if (!entry.known.contains(keys[index]) && sameMessage(all[index], entry.item)) break;
+      }
+      if (index >= all.length) continue;
+      pending.remove(entry);
+      for (final other in pending) {
+        other.known.add(keys[index]);
+      }
+    }
     if (pending.isEmpty) _outbox.remove(chatKey);
   }
 
