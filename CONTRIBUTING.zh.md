@@ -6,7 +6,7 @@
 
 ## 谁可以提 Pull Request
 
-本仓库的协作者直接在这里推分支，向 `dev` 提 Pull Request（见[协作方式](#协作方式)）。目前只有协作者能提 Pull Request。如果你不是协作者，发现 bug 请开 Issue（见[报告问题](#报告问题)），提问或建议请到 [Discussions](https://github.com/CikeSeven/DS-Bot/discussions)。
+本仓库的协作者直接在这里推分支，向 `main` 提 Pull Request（见[协作方式](#协作方式)）。目前只有协作者能提 Pull Request。如果你不是协作者，发现 bug 请开 Issue（见[报告问题](#报告问题)），提问或建议请到 [Discussions](https://github.com/CikeSeven/DS-Bot/discussions)。
 
 ## 最重要的规则
 
@@ -24,13 +24,11 @@
 
 | 分支 | 用途 | 谁来合并 |
 |---|---|---|
-| `dev` | 集成分支。所有修复和功能先进这里 | 所有协作者，CI 通过即可 |
-| `main` | 只放已发版的代码。维护者发版时把 `dev` 合进来，或合入热修 | 维护者 |
-| `fix/<Issue 号>-<短名>`、`feat/<Issue 号>-<短名>`、`docs/<短名>`、`chore/<短名>` | 你的工作分支。从最新的 `dev` 切出 | — |
+| `main` | 唯一的长期分支。所有修复和功能都通过 Pull Request 合进来；发版在它上面打 tag | 维护者，CI 通过即可 |
+| `fix/<Issue 号>-<短名>`、`feat/<Issue 号>-<短名>`、`docs/<短名>`、`chore/<短名>` | 你的工作分支。从最新的 `main` 切出；没有 Issue 时省掉 Issue 号 | — |
 
-- 分支名不要以 `dev/` 开头。有 `dev` 分支时，Git 建不了 `dev/<名字>`。
-- 同步分支用 `scripts/merge-dev.sh`：合入 `origin/dev`，生成文件 `ds-bot/client.js` 冲突时取 dev 的版本再重新生成（热修分支用 `git merge main`）。已推送的分支不要 rebase，也不要强推。
-- 默认分支是 `main`，所以 GitHub 新建 Pull Request 时默认的 base 是 `main`。请改成 `dev`。
+- 每个改动在单独的 git worktree 里做，主目录始终停在 `main`、保持干净。
+- 同步分支用 `scripts/merge-main.sh`：合入 `origin/main`，生成文件 `ds-bot/client.js` 冲突时取 `main` 的版本再重新生成。提 Pull Request 前如果 `main` 有了新提交，先同步。已推送的分支不要 rebase，也不要强推。
 
 ### Issue
 
@@ -56,10 +54,9 @@
 
 ### Pull Request
 
-1. 向 `dev` 提 Pull Request，按模板填写。用 `Fixes #<号>` 关联 Issue；修 bug 的 PR 一定要写明修的是哪个 bug。从 fork 提 Pull Request 时，请保持勾选 **Allow edits from maintainers**，方便维护者在合并前解决冲突或做小调整。
+1. 向 `main` 提 Pull Request，按模板填写。用 `Fixes #<号>` 关联 Issue；修 bug 的 PR 一定要写明修的是哪个 bug。从 fork 提 Pull Request 时，请保持勾选 **Allow edits from maintainers**，方便维护者在合并前解决冲突或做小调整。
 2. 在模板的 **Changelog** 一栏写一句用户能看到的变化，没有就写「无」。不要改 `CHANGELOG.md`：维护者发版时根据这些句子统一写。
-3. CI 通过后，自己用 **Create a merge commit** 合并，然后删除分支。不强制审查；想让人看一眼，在 Pull Request 里 @ 队友。
-4. 合进 `dev` 的修复不会关闭对应的 Issue：`Fixes #<号>` 只在合入默认分支时生效。Issue 会一直开着，直到发版，意思是「已在 `dev` 修复，尚未发版」。
+3. CI 通过后，由维护者用 **Create a merge commit** 合并，然后删除分支。合并时 `Fixes #<号>` 会关闭对应的 Issue。
 
 一个 Pull Request 只对应一个 Issue。大改动拆成多个 Pull Request。
 
@@ -70,10 +67,8 @@
 
 ### 发版（维护者）
 
-1. 向 `dev` 提一个 Pull Request：修改 `ds-bot/package.json` 里的版本号，根据已合并 Pull Request 的 Changelog 句子写 `CHANGELOG.md` 的这一版。
-2. 提一个从 `dev` 到 `main` 的 Pull Request，标题为 `release: vX.Y.Z`。在描述里列出这一版所有的 `Fixes #<号>`，合并时这些 Issue 会一起关闭。
-3. 合并前在 Windows 真机上做一遍[发版前真机检查](docs/dev/release-checklist.md)，改动涉及 macOS 时在 macOS 上也做一遍，结果贴在这个 PR 里。用 merge commit 合并，在 `main` 上发布 GitHub Release `vX.Y.Z`，发布时不勾「Set as the latest release」：安装包、`SHA256SUMS.txt` 和下载表都传完后，工作流会自己把它标为最新。Release 工作流会检查 tag 与版本号一致、且在 `main` 上，跑完检查后把包发到 npm（预发布版本发到 npm 的 `next` 标签）。不要手动 `npm publish`。
-4. 热修：从 `main` 切 `fix/hot-<短名>`，向 `main` 提 Pull Request，发一个补丁版本，再把 `main` 合回 `dev`。
+1. 向 `main` 提一个 Pull Request，标题为 `release: vX.Y.Z`：修改 `ds-bot/package.json` 里的版本号，根据上次发版以来已合并 Pull Request 的 Changelog 句子写 `CHANGELOG.md` 的这一版。
+2. 合并前在 Windows 真机上做一遍[发版前真机检查](docs/dev/release-checklist.md)，改动涉及 macOS 时在 macOS 上也做一遍，结果贴在这个 PR 里。用 merge commit 合并，在 `main` 上发布 GitHub Release `vX.Y.Z`，发布时不勾「Set as the latest release」：安装包、`SHA256SUMS.txt` 和下载表都传完后，工作流会自己把它标为最新。Release 工作流会检查 tag 与版本号一致、且在 `main` 上，跑完检查后把包发到 npm（预发布版本发到 npm 的 `next` 标签）。不要手动 `npm publish`。
 
 ## 搭建环境
 
