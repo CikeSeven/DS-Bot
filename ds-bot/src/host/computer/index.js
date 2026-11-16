@@ -348,8 +348,16 @@ export function install(rt) {
       liftHeld(held)
     }
   })
+  // A burst of tools/change (see tools.js) refreshes once, after it: each refresh
+  // lists the tools of every live Agent.
+  let refreshSoon = false
   ctx.on('tools/change', () => {
-    if (!stopped) refreshComputer()
+    if (stopped || refreshSoon) return
+    refreshSoon = true
+    queueMicrotask(() => {
+      refreshSoon = false
+      if (!stopped) refreshComputer()
+    })
   })
   const offSaved = typeof rt.onSaved === 'function'
     ? rt.onSaved(() => { if (!stopped) refreshComputer() })
