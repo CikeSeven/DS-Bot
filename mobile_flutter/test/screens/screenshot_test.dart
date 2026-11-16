@@ -94,6 +94,16 @@ void main() {
       await tester.pump(const Duration(milliseconds: 100));
     }
     await _shot(tester, key, '02-chat-bot$suffix');
+
+    // The line about a message to another Bot opens the two Bots' exchange.
+    await tester.tap(find.text('Chief').first);
+    for (var i = 0; i < 8; i++) {
+      await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 30)));
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+    await _shot(tester, key, '02b-exchange$suffix');
+    await tester.binding.handlePopRoute();
+    await tester.pump(const Duration(milliseconds: 600));
     await tester.binding.handlePopRoute();
     await tester.pump(const Duration(milliseconds: 600));
 

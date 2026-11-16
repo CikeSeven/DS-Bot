@@ -26,6 +26,28 @@ List<String> keysOf(List<Json> items) {
   ];
 }
 
+/// A run of computer steps with nothing between them is one row: the card
+/// lists the steps and their screenshots instead of a line per click. The run
+/// keeps its first step's seq, so its row stays put as steps arrive.
+List<Json> groupActs(List<Json> items) {
+  final out = <Json>[];
+  for (final item in items) {
+    if (!_isComputerStep(item)) {
+      out.add(item);
+      continue;
+    }
+    final last = out.isEmpty ? null : out.last;
+    if (last != null && jStr(last, 'act') == 'computer-run') {
+      out[out.length - 1] = {...last, 'steps': [...jMaps(last, 'steps'), item]};
+    } else {
+      out.add({'kind': 'act', 'act': 'computer-run', 'seq': ?item['seq'], 'turn': ?item['turn'], 'time': ?item['time'], 'steps': [item]});
+    }
+  }
+  return out;
+}
+
+bool _isComputerStep(Json item) => jStr(item, 'kind') == 'act' && jStr(item, 'act') == 'computer';
+
 /// A refreshed page reuses the item maps that did not change, so rows keep their
 /// identity and only new or changed rows rebuild.
 List<Json> keepSame(List<Json> prev, List<Json> next) {

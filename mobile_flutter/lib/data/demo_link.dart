@@ -285,6 +285,13 @@ class DemoLinkClient implements LinkClient {
           ],
           'defaultEffort': 'medium',
         };
+      case 'exchange':
+        final a = '${body['a'] ?? ''}';
+        final b = '${body['b'] ?? ''}';
+        return [
+          {'id': 'x1', 'from': a, 'to': b, 'text': 'The release notes draft is ready for a look.', 'time': now - 600000},
+          {'id': 'x2', 'from': b, 'to': a, 'text': 'Thanks. Keep the section heads; I will check the tone tonight.', 'time': now - 540000},
+        ];
       case 'memory-view' || 'memory-add' || 'memory-edit' || 'memory-forget' || 'memory-pin' || 'memory-restore':
         return _memoryView(now);
       case 'memory-ask':

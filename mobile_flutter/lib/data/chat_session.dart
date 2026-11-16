@@ -132,7 +132,7 @@ class ChatSession extends ChangeNotifier {
     if (!_rowsDirty) return _rows;
     final outgoing = _outbox[chatKey] ?? const [];
     // Tool steps stay off the phone's list; what a Bot does shows only while it works.
-    final all = [...items, ...outgoing.map((entry) => entry.item)].where((item) => jStr(item, 'kind') != 'steps').toList();
+    final all = groupActs([...items, ...outgoing.map((entry) => entry.item)].where((item) => jStr(item, 'kind') != 'steps').toList());
     final keys = keysOf(all);
     final photosByLocal = {for (final entry in outgoing) jStr(entry.item, 'localId'): entry.photos};
     _rows = [
