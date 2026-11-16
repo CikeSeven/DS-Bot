@@ -1,5 +1,7 @@
-// Photos and files in a chat: previews fetched once per attachment, the original
-// when a photo opens full screen, and files read or saved onto the phone.
+// Photos and files in a chat: previews fetched once per picture, the original when
+// a photo opens full screen, and files read or saved onto the phone. A picture is a
+// message's attachment, an image file a turn presented or an image a reply's
+// Markdown names on the computer (`image` reads all three), or one on the web.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -23,14 +25,39 @@ final Map<String, Uint8List> _previews = {};
 final Map<String, Uint8List> _originals = {};
 final Map<String, Future<Uint8List>> _loading = {};
 
-Future<Uint8List> loadImage(TeamSession session, String sessionId, String attachmentId, {bool original = false}) {
-  final key = '$sessionId:$attachmentId:${original ? 'o' : 'p'}';
+final _imageName = RegExp(r'\.(png|jpe?g|gif|webp)$', caseSensitive: false);
+
+/// A file the chat shows as a picture rather than as a file card.
+bool isImageName(String? name) => name != null && _imageName.hasMatch(name);
+
+/// The address of a picture on the web; null for one on the computer.
+String? webImageOf(Json ref) => jStr(ref, 'url');
+
+/// What `image` needs to find a picture on the computer. A presented file names
+/// its own part's Session, because its seq counts in that Session.
+Json imageTarget(String sessionId, Json ref) {
+  final path = jStr(ref, 'path');
+  final seq = jInt(ref, 'seq');
+  return {
+    'sessionId': jStr(ref, 'sessionId') ?? sessionId,
+    if (path != null)
+      'path': path
+    else if (seq != null)
+      ...{'seq': seq, 'index': jInt(ref, 'index') ?? 0}
+    else
+      'attachmentId': jStr(ref, 'attachmentId') ?? '',
+  };
+}
+
+Future<Uint8List> loadImage(TeamSession session, String sessionId, Json ref, {bool original = false}) {
+  final target = imageTarget(sessionId, ref);
+  final key = '${jsonEncode(target)}:${original ? 'o' : 'p'}';
   final cache = original ? _originals : _previews;
   final known = cache[key];
   if (known != null) return Future.value(known);
   return _loading.putIfAbsent(key, () async {
     try {
-      final value = asJson(await session.call('image', {'sessionId': sessionId, 'attachmentId': attachmentId, if (!original) 'preview': true}));
+      final value = asJson(await session.call('image', {...target, if (!original) 'preview': true}));
       final bytes = base64Decode(jStr(value, 'data') ?? '');
       cache[key] = bytes;
       if (original && _originals.length > 6) _originals.remove(_originals.keys.first);
@@ -42,23 +69,44 @@ Future<Uint8List> loadImage(TeamSession session, String sessionId, String attach
 }
 
 class ImageGrid extends StatelessWidget {
-  const ImageGrid({super.key, required this.refs, required this.sessionId});
+  const ImageGrid({super.key, required this.refs, required this.sessionId, this.natural = false, this.top = 6});
 
   final List<Json> refs;
   final String sessionId;
 
+  /// A single picture keeps its own shape (a chart a Bot shows), not a square tile.
+  final bool natural;
+
+  /// Space above: after a message's text, or less between Markdown blocks.
+  final double top;
+
   @override
   Widget build(BuildContext context) {
+    if (natural && refs.length == 1) {
+      return Padding(
+        padding: EdgeInsets.only(top: top),
+        child: GestureDetector(
+          onTap: () => showPhotos(context, sessionId, refs, 0),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(Radii.card),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 260, maxHeight: 320),
+              child: _Preview(sessionId: sessionId, ref: refs.single, natural: true),
+            ),
+          ),
+        ),
+      );
+    }
     final tile = refs.length == 1 ? 200.0 : 120.0;
     return Padding(
-      padding: const EdgeInsets.only(top: 6),
+      padding: EdgeInsets.only(top: top),
       child: Wrap(spacing: 6, runSpacing: 6, children: [
         for (final (index, ref) in refs.indexed)
           GestureDetector(
             onTap: () => showPhotos(context, sessionId, refs, index),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(Radii.card),
-              child: SizedBox.square(dimension: tile, child: _Preview(sessionId: sessionId, attachmentId: jStr(ref, 'attachmentId') ?? '')),
+              child: SizedBox.square(dimension: tile, child: _Preview(sessionId: sessionId, ref: ref)),
             ),
           ),
       ]),
@@ -67,41 +115,65 @@ class ImageGrid extends StatelessWidget {
 }
 
 class _Preview extends StatefulWidget {
-  const _Preview({required this.sessionId, required this.attachmentId});
+  const _Preview({required this.sessionId, required this.ref, this.natural = false});
 
   final String sessionId;
-  final String attachmentId;
+  final Json ref;
+  final bool natural;
 
   @override
   State<_Preview> createState() => _PreviewState();
 }
 
 class _PreviewState extends State<_Preview> {
-  late Future<Uint8List> _future;
+  Future<Uint8List>? _future;
 
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _future = loadImage(TeamScope.read(context), widget.sessionId, widget.attachmentId);
+    if (webImageOf(widget.ref) == null) _future = loadImage(TeamScope.read(context), widget.sessionId, widget.ref);
   }
 
   @override
   Widget build(BuildContext context) {
-    final p = context.p;
+    final fit = widget.natural ? BoxFit.contain : BoxFit.cover;
+    final url = webImageOf(widget.ref);
+    if (url != null) {
+      return Image.network(
+        url,
+        fit: fit,
+        gaplessPlayback: true,
+        loadingBuilder: (context, child, progress) => progress == null ? child : _placeholder(context, failed: false),
+        errorBuilder: (context, error, stack) => _placeholder(context, failed: true),
+      );
+    }
     return FutureBuilder<Uint8List>(
       future: _future,
       builder: (context, snapshot) {
-        if (snapshot.hasData) return Image.memory(snapshot.data!, fit: BoxFit.cover, gaplessPlayback: true);
-        return ColoredBox(
-          color: p.bubble,
-          child: Center(
-            child: snapshot.hasError
-                ? Padding(padding: const EdgeInsets.all(8), child: Text(t('View it on the computer'), textAlign: TextAlign.center, style: TypeScale.caption.copyWith(color: p.ink3)))
-                : SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: p.ink3)),
-          ),
-        );
+        if (snapshot.hasData) return Image.memory(snapshot.data!, fit: fit, gaplessPlayback: true);
+        return _placeholder(context, failed: snapshot.hasError);
       },
     );
+  }
+
+  Widget _placeholder(BuildContext context, {required bool failed}) {
+    final p = context.p;
+    final box = ColoredBox(
+      color: p.bubble,
+      child: Center(
+        child: failed
+            ? Padding(
+                padding: const EdgeInsets.all(8),
+                child: Text(
+                  t(webImageOf(widget.ref) != null ? 'Image not available' : 'View it on the computer'),
+                  textAlign: TextAlign.center,
+                  style: TypeScale.caption.copyWith(color: p.ink3),
+                ),
+              )
+            : SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: p.ink3)),
+      ),
+    );
+    return widget.natural ? SizedBox(width: 200, height: 140, child: box) : box;
   }
 }
 
@@ -159,8 +231,37 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     super.dispose();
   }
 
+  Widget _picture(Json ref) {
+    const waiting = CircularProgressIndicator(color: Colors.white);
+    Widget failed(String text) => Text(t(text), style: TypeScale.small.copyWith(color: Colors.white70));
+    final url = webImageOf(ref);
+    if (url != null) {
+      return Image.network(
+        url,
+        fit: BoxFit.contain,
+        gaplessPlayback: true,
+        loadingBuilder: (context, child, progress) => progress == null ? child : waiting,
+        errorBuilder: (context, error, stack) => failed('Image not available'),
+      );
+    }
+    return FutureBuilder<Uint8List>(
+      future: loadImage(widget.session, widget.sessionId, ref, original: true),
+      builder: (context, original) {
+        if (original.hasData) return Image.memory(original.data!, fit: BoxFit.contain, gaplessPlayback: true);
+        return FutureBuilder<Uint8List>(
+          future: loadImage(widget.session, widget.sessionId, ref),
+          builder: (context, preview) {
+            if (preview.hasData) return Image.memory(preview.data!, fit: BoxFit.contain, gaplessPlayback: true);
+            return preview.hasError ? failed('View it on the computer') : waiting;
+          },
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
+    final current = widget.refs[_at];
     return Scaffold(
       backgroundColor: Colors.black,
       body: Stack(children: [
@@ -168,32 +269,13 @@ class _PhotoViewerState extends State<_PhotoViewer> {
           controller: _pages,
           itemCount: widget.refs.length,
           onPageChanged: (i) => setState(() => _at = i),
-          itemBuilder: (context, i) {
-            final id = jStr(widget.refs[i], 'attachmentId') ?? '';
-            return GestureDetector(
-              onTap: () => Navigator.pop(context),
-              onVerticalDragEnd: (details) {
-                if ((details.primaryVelocity ?? 0).abs() > 600) Navigator.pop(context);
-              },
-              child: InteractiveViewer(
-                maxScale: 5,
-                child: Center(
-                  child: FutureBuilder<Uint8List>(
-                    future: loadImage(widget.session, widget.sessionId, id, original: true),
-                    builder: (context, original) {
-                      if (original.hasData) return Image.memory(original.data!, fit: BoxFit.contain, gaplessPlayback: true);
-                      return FutureBuilder<Uint8List>(
-                        future: loadImage(widget.session, widget.sessionId, id),
-                        builder: (context, preview) => preview.hasData
-                            ? Image.memory(preview.data!, fit: BoxFit.contain, gaplessPlayback: true)
-                            : const CircularProgressIndicator(color: Colors.white),
-                      );
-                    },
-                  ),
-                ),
-              ),
-            );
-          },
+          itemBuilder: (context, i) => GestureDetector(
+            onTap: () => Navigator.pop(context),
+            onVerticalDragEnd: (details) {
+              if ((details.primaryVelocity ?? 0).abs() > 600) Navigator.pop(context);
+            },
+            child: InteractiveViewer(maxScale: 5, child: Center(child: _picture(widget.refs[i]))),
+          ),
         ),
         SafeArea(
           child: Padding(
@@ -203,6 +285,8 @@ class _PhotoViewerState extends State<_PhotoViewer> {
               const Spacer(),
               if (widget.refs.length > 1) Text('${_at + 1} / ${widget.refs.length}', style: TypeScale.small.copyWith(color: Colors.white70)),
               const SizedBox(width: 12),
+              // A presented image saves whole, as its file card did.
+              if (jInt(current, 'seq') != null) IconBtn(AppIcon.download, color: Colors.white, onTap: () => saveFile(context, current, widget.sessionId)),
             ]),
           ),
         ),
@@ -233,7 +317,8 @@ class FileChip extends StatelessWidget {
         Flexible(
           child: InkWell(
             borderRadius: BorderRadius.circular(Radii.card),
-            onTap: () => openFileText(context, file),
+            // A presented file has no text here to read; it opens by saving.
+            onTap: () => jStr(file, 'attachmentId') != null ? openFileText(context, file) : saveFile(context, file, sessionId),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(10, 8, 6, 8),
               child: Row(mainAxisSize: MainAxisSize.min, children: [

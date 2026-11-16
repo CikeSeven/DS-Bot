@@ -140,3 +140,13 @@ the existing whole-file response and its 16 MiB compatibility limit.
 - `run_code` 程序里派发的同类调用（`tool/ptc-dispatch`）也算。隐藏的 Bot 间对话轮次不出条目。
 - `image` 也认工具结果里的图片，电脑步骤的截图用它取，和聊天照片一样有预览。
 - 手机把相连的电脑步骤合成一张卡片，列出步骤和截图；其余条目是居中的事件行，点开对应的聊天、往来记录、Bot 详情或记忆。
+
+## 回复里展示的图片（2026-11-16）
+
+能力 `shown-images`。`image` 多两种取法，读的都是电脑上的文件：
+
+- `{ sessionId, path }`：Bot 回复里 Markdown 图片 `![说明](路径)` 的目标，按回复写的原样传，可以带尖括号或百分号转义。相对路径按 `sessionId` 这个聊天的文件夹解析，和 DSH 的聊天一样。`sessionId` 要是团队的会话，和 `file-download` 认的一样。
+- `{ sessionId, seq, index }`：一轮用 `present` 交付的文件，坐标和 `file-download` 相同，`sessionId` 用文件条目自带的那一段。
+- 只认 png、jpg、jpeg、gif、webp，其它回 `bot/invalid`。不存在的文件、DSH 或团队数据目录里的文件回 `bot/not-found`。
+- `preview: true` 和照片一样给长边 512 的 JPEG 预览。不带 `preview` 时，超过 2 MiB 的图片换成长边最多 2048 的 JPEG：手机连接一条消息最多 4 MiB（base64 之后）。缩不了的（大的 GIF、WebP）回 `bot/refused`。
+- 手机上，回复里的 Markdown 图片按原比例画在气泡里，http(s) 的网页图片由手机直接加载；`present` 交付的图片画成图，点开全屏，全屏里能保存原文件；其它交付的文件仍是文件卡片，点卡片就保存。电脑没有 `shown-images` 时手机照旧显示说明文字和文件卡片。

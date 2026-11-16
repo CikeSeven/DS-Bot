@@ -28,6 +28,11 @@ function fileTarget(destination) {
   return { path, fragment }
 }
 
+// The path a Markdown link or image destination names, decoded; undefined for a URL.
+export function linkPath(destination) {
+  return fileTarget(String(destination))?.path
+}
+
 function relativeFile(destination) {
   const file = fileTarget(destination)
   return file === undefined || ABSOLUTE.test(file.path) || file.path.startsWith('~') ? undefined : file

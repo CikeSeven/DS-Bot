@@ -1,6 +1,7 @@
 // Markdown for chat bubbles and readers: parsed with package:markdown (GitHub
 // flavor), drawn here so code, tables and CJK spacing look right on a phone.
-// Links open only for http(s) and mailto; images show their alt text.
+// Links open only for http(s) and mailto. Images show their alt text, unless the
+// caller draws them (`images`).
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -26,8 +27,15 @@ final _blockPattern = RegExp(r'(^|\n)\s*(```|~~~|\|.*\|)');
 /// A message with a code block or a table takes the full bubble width.
 bool hasBlockContent(String text) => _blockPattern.hasMatch(text);
 
+/// An image a Markdown text shows: its destination as written, and its alt text.
+typedef MarkdownImage = ({String src, String alt});
+
+/// Draws a run of images that stand together in a paragraph, or returns null to
+/// leave them as their alt text.
+typedef MarkdownImages = Widget? Function(List<MarkdownImage> images);
+
 class MarkdownText extends StatelessWidget {
-  const MarkdownText(this.text, {super.key, this.color, this.background, this.style = TypeScale.bubble});
+  const MarkdownText(this.text, {super.key, this.color, this.background, this.style = TypeScale.bubble, this.images});
 
   final String text;
   final Color? color;
@@ -35,12 +43,13 @@ class MarkdownText extends StatelessWidget {
   /// What the text sits on, so code and quotes tint against it.
   final Color? background;
   final TextStyle style;
+  final MarkdownImages? images;
 
   @override
   Widget build(BuildContext context) {
     final p = context.p;
     final ink = color ?? p.ink;
-    final renderer = _Renderer(context, style.copyWith(color: ink), ink, background ?? p.main);
+    final renderer = _Renderer(context, style.copyWith(color: ink), ink, background ?? p.main, images);
     final blocks = renderer.blocks(_parse(text));
     if (blocks.length == 1) return blocks.single;
     return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: blocks);
@@ -48,12 +57,13 @@ class MarkdownText extends StatelessWidget {
 }
 
 class _Renderer {
-  _Renderer(this.context, this.base, this.ink, this.background);
+  _Renderer(this.context, this.base, this.ink, this.background, this.images);
 
   final BuildContext context;
   final TextStyle base;
   final Color ink;
   final Color background;
+  final MarkdownImages? images;
 
   Color get tint => ink.withValues(alpha: 0.07);
   Color get line => ink.withValues(alpha: 0.15);
@@ -78,7 +88,7 @@ class _Renderer {
         final bump = switch (node.tag) { 'h1' => 4.0, 'h2' => 2.0, 'h3' => 1.0, _ => 0.0 };
         return _rich(inline(node.children ?? const []), style: base.copyWith(fontSize: (base.fontSize ?? 16) + bump, fontWeight: FontWeight.w600));
       case 'p':
-        return _rich(inline(node.children ?? const []));
+        return _paragraph(node.children ?? const []);
       case 'pre':
         return _code(node);
       case 'ul' || 'ol':
@@ -99,8 +109,48 @@ class _Renderer {
       default:
         final children = node.children;
         if (children == null || children.isEmpty) return null;
-        return _rich(inline(children));
+        return _paragraph(children);
     }
+  }
+
+  static bool _isImage(md.Node node) => node is md.Element && node.tag == 'img';
+
+  static bool _isBlank(md.Node node) => (node is md.Text && node.text.trim().isEmpty) || (node is md.Element && node.tag == 'br');
+
+  /// Inline content as text, with each run of images in it drawn by [images]
+  /// between the text around it. Without a drawn run it stays one text.
+  Widget _paragraph(List<md.Node> nodes) {
+    final draw = images;
+    if (draw == null || !nodes.any(_isImage)) return _rich(inline(nodes));
+    final parts = <(List<md.Node>, Widget?)>[];
+    var text = <md.Node>[];
+    var run = <md.Element>[];
+    void endText() {
+      if (text.any((node) => !_isBlank(node))) parts.add((text, null));
+      text = [];
+    }
+    void endRun() {
+      if (run.isEmpty) return;
+      parts.add((run, draw([for (final image in run) (src: image.attributes['src'] ?? '', alt: image.attributes['alt'] ?? '')])));
+      run = [];
+    }
+    for (final node in nodes) {
+      if (_isImage(node)) {
+        endText();
+        run.add(node as md.Element);
+      } else if (run.isNotEmpty && _isBlank(node)) {
+        continue;
+      } else {
+        endRun();
+        text.add(node);
+      }
+    }
+    endRun();
+    endText();
+    if (parts.every((part) => part.$2 == null)) return _rich(inline(nodes));
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, spacing: 6, children: [
+      for (final (part, drawn) in parts) drawn ?? _rich(inline(part)),
+    ]);
   }
 
   Widget _rich(List<InlineSpan> spans, {TextStyle? style}) =>
@@ -203,7 +253,7 @@ class _Renderer {
   Widget _listItem(md.Element item, int depth) {
     final children = item.children ?? const [];
     final hasBlocks = children.any((child) => child is md.Element && const {'p', 'ul', 'ol', 'pre', 'blockquote', 'table'}.contains(child.tag));
-    if (!hasBlocks) return _rich(inline(children));
+    if (!hasBlocks) return _paragraph(children);
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: blocks(children, depth: depth + 1));
   }
 

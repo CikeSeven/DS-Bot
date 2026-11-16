@@ -45,8 +45,11 @@ function start() {
   return worker
 }
 
-/** A JPEG preview of `bytes`, or null when the photo is small already or of a kind kept as it is. */
-export function previewImage(bytes, mime) {
+/**
+ * A JPEG preview of `bytes`, or null when the photo is small already or of a kind kept as it is.
+ * `edge` sets the long side; `always` re-encodes a photo within it at its own size.
+ */
+export function previewImage(bytes, mime, { edge = PREVIEW_EDGE, quality = QUALITY, always = false } = {}) {
   if (!SHRINKS.has(String(mime).toLowerCase()) || bytes.length < PREVIEW_MIN_BYTES) return Promise.resolve(null)
   clearTimeout(idle)
   idle = setTimeout(stopWorker, IDLE_MS)
@@ -60,6 +63,6 @@ export function previewImage(bytes, mime) {
     }, JOB_TIMEOUT_MS)
     timer.unref()
     waiting.set(id, { resolve, reject, timer })
-    start().postMessage({ id, bytes, mime: String(mime).toLowerCase() === 'image/png' ? 'image/png' : 'image/jpeg', edge: PREVIEW_EDGE, quality: QUALITY })
+    start().postMessage({ id, bytes, mime: String(mime).toLowerCase() === 'image/png' ? 'image/png' : 'image/jpeg', edge, quality, always })
   })
 }

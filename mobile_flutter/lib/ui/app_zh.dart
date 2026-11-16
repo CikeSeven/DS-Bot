@@ -33,6 +33,7 @@ const appZh = <String, String>{
   'Quote': '引用',
   'Share': '分享',
   'Save file': '保存文件',
+  'Image not available': '图片无法显示',
   'Saved': '已保存',
   'Downloading…': '正在下载…',
   'Arguments': '参数',
