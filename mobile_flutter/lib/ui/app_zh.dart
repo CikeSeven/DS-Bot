@@ -40,6 +40,7 @@ const appZh = <String, String>{
   'Output': '输出',
   'Thinking': '思考过程',
   'Attach file': '添加文件',
+  'Attach': '添加附件',
   'Photos': '照片',
   'Files': '文件',
   'Camera': '相机',
