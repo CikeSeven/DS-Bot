@@ -12,6 +12,7 @@ import 'package:flutter/services.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../data/chat_session.dart';
+import '../../data/photos.dart';
 import '../../data/team_state.dart';
 import '../../ui/avatar.dart';
 import '../../ui/i18n.dart';
@@ -168,14 +169,15 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
     final picker = ImagePicker();
     setState(() => _preparing = true);
     try {
-      // The long side at most 2048 px: well under what the link carries in one
-      // message, and as much as the models look at.
+      // A camera photo is shrunk by the picker. The gallery gives originals: the
+      // picker would make a GIF a still JPEG, so photos.dart shrinks all but GIFs.
       final picked = camera
-          ? [await picker.pickImage(source: ImageSource.camera, maxWidth: 2048, maxHeight: 2048, imageQuality: 82)].whereType<XFile>().toList()
-          : await picker.pickMultiImage(maxWidth: 2048, maxHeight: 2048, imageQuality: 82, limit: 6);
+          ? [await picker.pickImage(source: ImageSource.camera, maxWidth: photoEdge.toDouble(), maxHeight: photoEdge.toDouble(), imageQuality: photoQuality)].whereType<XFile>().toList()
+          : await picker.pickMultiImage(limit: 6);
       for (final file in picked) {
-        final bytes = await file.readAsBytes();
-        _photos.add(OutgoingPhoto(bytes: bytes, mediaType: _imageType(file.name), base64: _b64(bytes)));
+        final read = await file.readAsBytes();
+        final bytes = camera ? read : await photoToSend(read);
+        _photos.add(OutgoingPhoto(bytes: bytes, mediaType: imageTypeOf(bytes) ?? 'image/jpeg', base64: _b64(bytes)));
       }
     } on Object catch (error) {
       if (mounted) toast(context, '$error', error: true);
@@ -585,11 +587,6 @@ class _Thumb extends StatelessWidget {
       ]),
     );
   }
-}
-
-String _imageType(String name) {
-  final ext = name.split('.').last.toLowerCase();
-  return switch (ext) { 'png' => 'image/png', 'webp' => 'image/webp', 'gif' => 'image/gif', _ => 'image/jpeg' };
 }
 
 String _fileType(String name) {
