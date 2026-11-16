@@ -68,6 +68,8 @@ export function install(rt) {
       publish('live', {})
     }, LIVE_DELAY_MS)
   }
+  // turns.js: a call began, ended, or the model began writing one.
+  rt.noteWork = live
   ctx.on('agent/status', ({ agent }) => {
     if (rt.selfOf(agent.id) !== undefined) live()
   })

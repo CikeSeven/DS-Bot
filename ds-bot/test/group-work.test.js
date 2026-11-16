@@ -1397,6 +1397,42 @@ test('the team view says what a member is doing in the call\'s own words', async
   assert.deepEqual(['said', 'note'].map(key => later.work.bots.a[key]), ['先把 JDK 下下来。', 'Download JDK 21'])
 })
 
+test('the team view shows a call from its first streamed chunk, before its arguments are whole', async (t) => {
+  const host = await start(t)
+  const stream = frame => { for (const listener of host.ctx.listeners.get('agent/assistant-stream')) listener({ agent: { id: 'gb' }, frame }) }
+  const doing = async () => {
+    const { tool, call, note, target, said } = (await host.call('state', {})).value.work.bots.b ?? {}
+    return { tool, call, note, target, said }
+  }
+  host.emit('gb', 'turn/start', { turn: 1 })
+  step(host, 'gb', '先看看现在的说明。', 'k0', 'read', JSON.stringify({ path: 'README.md' }))
+  host.emit('gb', 'tool/result', { callId: 'k0' })
+  stream({ type: 'start', attemptId: 'a1', turn: 1 })
+  stream({ type: 'chunk', attemptId: 'a1', chunk: { type: 'tool-call-delta', index: 0, id: 'k1', name: 'write', argumentsDelta: '' } })
+  // The name is enough; the words of the last step are not this call's.
+  assert.deepEqual(await doing(), { tool: 'write', call: 'k1', note: undefined, target: undefined, said: undefined })
+  stream({ type: 'chunk', attemptId: 'a1', chunk: { type: 'tool-call-delta', index: 0, id: 'k1', argumentsDelta: '{"path": "docs/release-' } })
+  assert.equal((await doing()).target, undefined)
+  stream({ type: 'chunk', attemptId: 'a1', chunk: { type: 'tool-call-delta', index: 0, id: 'k1', argumentsDelta: 'notes.md", "content": "# Notes\\n\\"path\\": \\"x.md\\"' } })
+  for (let i = 0; i < 400; i++) stream({ type: 'chunk', attemptId: 'a1', chunk: { type: 'tool-call-delta', index: 0, id: 'k1', argumentsDelta: '- one more line\\n' } })
+  assert.deepEqual(await doing(), { tool: 'write', call: 'k1', note: undefined, target: 'release-notes.md', said: undefined })
+
+  // The whole call runs as the same step, then the Bot thinks again.
+  stream({ type: 'end', attemptId: 'a1' })
+  step(host, 'gb', '', 'k1', 'write', JSON.stringify({ path: 'docs/release-notes.md', content: '# Notes' }))
+  assert.deepEqual(await doing(), { tool: 'write', call: 'k1', note: undefined, target: 'release-notes.md', said: undefined })
+  host.emit('gb', 'tool/result', { callId: 'k1' })
+  assert.deepEqual(await doing(), { tool: undefined, call: undefined, note: undefined, target: undefined, said: undefined })
+
+  // A command shows its description while the command itself still streams.
+  stream({ type: 'start', attemptId: 'a2', turn: 1 })
+  stream({ type: 'chunk', attemptId: 'a2', chunk: { type: 'tool-call-delta', index: 0, id: 'k2', name: 'pwsh', argumentsDelta: '{"description": "Run the \\"unit\\" tests", "command": "npm te' } })
+  assert.deepEqual(await doing(), { tool: 'pwsh', call: 'k2', note: 'Run the "unit" tests', target: undefined, said: undefined })
+  // A reply with no call leaves nothing drafted.
+  host.emit('gb', 'assistant/message', { message: { content: [{ type: 'text', text: 'Done.' }] } })
+  assert.equal((await doing()).tool, undefined)
+})
+
 test('the team view says when each Session\'s running turn began, for the clock at its tail', async (t) => {
   const host = await start(t)
   const before = Date.now()
