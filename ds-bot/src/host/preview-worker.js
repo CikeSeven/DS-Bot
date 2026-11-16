@@ -4,9 +4,9 @@ import { parentPort } from 'node:worker_threads'
 import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
 
-parentPort?.on('message', ({ id, bytes, mime, edge, quality }) => {
+parentPort?.on('message', ({ id, bytes, mime, edge, quality, always }) => {
   try {
-    parentPort.postMessage({ id, data: shrink(Buffer.from(bytes), mime, edge, quality) })
+    parentPort.postMessage({ id, data: shrink(Buffer.from(bytes), mime, edge, quality, always) })
   } catch (error) {
     parentPort.postMessage({ id, error: String(error?.message ?? error) })
   }
@@ -18,11 +18,11 @@ function decode(bytes, mime) {
 }
 
 // Area average into a box at most `edge` on its long side, over white where it is
-// transparent. Null when the photo is already that small.
-export function shrink(bytes, mime, edge, quality) {
+// transparent. Null when the photo is already that small, unless `always`.
+export function shrink(bytes, mime, edge, quality, always = false) {
   const { width, height, data } = decode(bytes, mime)
-  if (Math.max(width, height) <= edge) return null
-  const scale = edge / Math.max(width, height)
+  if (Math.max(width, height) <= edge && !always) return null
+  const scale = Math.min(1, edge / Math.max(width, height))
   const w = Math.max(1, Math.round(width * scale))
   const h = Math.max(1, Math.round(height * scale))
   const sums = new Float64Array(w * h * 3)

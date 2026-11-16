@@ -528,6 +528,98 @@ test('room-chat keeps two group_relay calls that start at the same seq apart by 
   ])
 })
 
+const pngOf = (width, height) => {
+  const png = new PNG({ width, height })
+  png.data.fill(128)
+  return PNG.sync.write(png)
+}
+
+test('image shows a Markdown image by its path, a relative one from the chat folder', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-shown-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const chart = pngOf(4, 3)
+  writeFileSync(join(dir, 'chart.png'), chart)
+  writeFileSync(join(dir, 'my chart.png'), chart)
+  writeFileSync(join(dir, 'notes.txt'), 'not a picture')
+
+  const whole = await call('image', { sessionId, path: join(dir, 'chart.png') })
+  assert.equal(whole.ok, true)
+  assert.equal(whole.value.mime, 'image/png')
+  assert.equal(Buffer.compare(Buffer.from(whole.value.data, 'base64'), chart), 0)
+  // The destination as Markdown wrote it: escaped, or in angle brackets.
+  assert.equal((await call('image', { sessionId, path: `${dir}/my%20chart.png` })).ok, true)
+  assert.equal((await call('image', { sessionId, path: `<${dir}/my chart.png>` })).ok, true)
+
+  rt.state.bots[chief].workDir = dir
+  const relative = await call('image', { sessionId, path: 'chart.png', preview: true })
+  assert.equal(relative.ok, true)
+  assert.equal(Buffer.compare(Buffer.from(relative.value.data, 'base64'), chart), 0)
+
+  const refused = async (payload, code) => {
+    const answer = await call('image', payload)
+    assert.deepEqual([answer.ok, answer.error?.code], [false, code], JSON.stringify(payload))
+  }
+  await refused({ sessionId, path: join(dir, 'notes.txt') }, 'bot/invalid')
+  await refused({ sessionId, path: 'https://example.com/chart.png' }, 'bot/invalid')
+  await refused({ sessionId, path: join(dir, 'gone.png') }, 'bot/not-found')
+  await refused({ sessionId: 's-unknown', path: join(dir, 'chart.png') }, 'bot/not-found')
+  writeFileSync(join(rt.home, 'kept.png'), chart)
+  await refused({ sessionId, path: join(rt.home, 'kept.png') }, 'bot/not-found')
+})
+
+test('image sends a large shown image as a JPEG within the phone link limit', async (t) => {
+  const { call, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-shown-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const width = 2400
+  const height = 1000
+  const png = new PNG({ width, height })
+  randomBytes(png.data.length).copy(png.data)
+  const bytes = PNG.sync.write(png)
+  assert.ok(bytes.length > 2 * 1024 * 1024)
+  writeFileSync(join(dir, 'plot.png'), bytes)
+
+  const view = (await call('image', { sessionId, path: join(dir, 'plot.png') })).value
+  assert.equal(view.mime, 'image/jpeg')
+  const decoded = jpeg.decode(Buffer.from(view.data, 'base64'))
+  assert.deepEqual([decoded.width, decoded.height], [2048, 853])
+  assert.ok(view.data.length < 4 * 1024 * 1024)
+  const preview = (await call('image', { sessionId, path: join(dir, 'plot.png'), preview: true })).value
+  assert.equal(preview.preview, true)
+  assert.equal(jpeg.decode(Buffer.from(preview.data, 'base64')).width, 512)
+})
+
+test('image shows an image file a turn presented, by the coordinates on its Bot row', async (t) => {
+  const { call, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const dir = mkdtempSync(join(tmpdir(), 'ds-bot-shown-'))
+  t.after(() => rmSync(dir, { recursive: true, force: true }))
+  const chart = pngOf(6, 6)
+  writeFileSync(join(dir, 'result.png'), chart)
+  writeFileSync(join(dir, 'report.pdf'), '%PDF-1.4')
+  history[sessionId] = [{ seq: 5, type: 'deliverables/presented', data: { turn: 1, files: [{ path: join(dir, 'result.png') }, { path: join(dir, 'report.pdf') }] } }]
+
+  const shown = await call('image', { sessionId, seq: 5, index: 0, preview: true })
+  assert.equal(shown.ok, true)
+  assert.equal(shown.value.mime, 'image/png')
+  assert.equal(Buffer.compare(Buffer.from(shown.value.data, 'base64'), chart), 0)
+  const pdf = await call('image', { sessionId, seq: 5, index: 1 })
+  assert.deepEqual([pdf.ok, pdf.error.code], [false, 'bot/invalid'])
+  const missing = await call('image', { sessionId, seq: 6, index: 0 })
+  assert.deepEqual([missing.ok, missing.error.code], [false, 'bot/not-found'])
+  const unowned = await call('image', { sessionId: 's-unknown', seq: 5, index: 0 })
+  assert.deepEqual([unowned.ok, unowned.error.code], [false, 'bot/not-found'])
+})
+
 test('file-download sends a presented file back to the phone, and disambiguates parts by sessionId', async (t) => {
   const { call, history, rt, stop } = start()
   t.after(stop)

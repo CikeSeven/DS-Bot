@@ -6,7 +6,9 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { readFileSync } from 'node:fs'
 import { open, readFile, stat } from 'node:fs/promises'
+import { isAbsolute, resolve } from 'node:path'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
+import { linkPath } from './links.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
 import { relayRange } from '../shared/group-replies.js'
 import { textOf } from './text.js'
@@ -51,6 +53,7 @@ export const CAPABILITIES = [
   'step-detail',
   'thinking-text',
   'chat-acts',
+  'shown-images',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
 
@@ -391,6 +394,8 @@ export function install(rt) {
   }
 
   async function image(body) {
+    if (typeof body.path === 'string') return shownImage(body)
+    if (Number.isInteger(body.seq)) return presentedImage(body)
     const sessionId = String(body.sessionId ?? '')
     const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
     const botId = room === undefined ? rt.chatOwners.get(sessionId) ?? rt.pastOwners.get(sessionId)?.botId : undefined
@@ -450,6 +455,107 @@ export function install(rt) {
   const tooLarge = () => Object.assign(new Error('This file is too large to save here (over 16 MB)'), { code: 'bot/refused' })
   const unavailable = () => Object.assign(new Error('This file is no longer available'), { code: 'bot/not-found' })
 
+  // The Sessions a phone may fetch files from through the chat `sessionId` names: a Bot's
+  // own chat or a group with every part of it, or one member's Session in a group.
+  function ownedSessions(sessionId) {
+    const groupOwner = rt.groupOwners?.get(sessionId)
+    const pastOwner = rt.pastOwners.get(sessionId)
+    const memberBotId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
+    const room = rt.roomOf(sessionId) ?? rt.roomOf(groupOwner?.roomId ?? pastOwner?.roomId)
+    const botId = memberBotId ?? (room === undefined
+      ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id
+      : undefined)
+    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
+    return new Set([
+      ...(room !== undefined && memberBotId === undefined ? [rt.sessionOfRoom(room)] : []),
+      ...(room !== undefined && memberBotId !== undefined && room.sessions?.[memberBotId] ? [room.sessions[memberBotId]] : []),
+      ...(room === undefined && botId !== undefined ? [rt.chatOf(botId)] : []),
+      ...rt.partsOf(botId, room?.id).map(part => part.sessionId),
+    ].filter(Boolean))
+  }
+
+  // A file on this computer outside DSH's and the team's data: its real path and stat.
+  async function fileAt(path) {
+    const realPath = await rt.real?.(path) ?? path
+    if (await rt.inData?.(realPath)) throw unavailable()
+    const info = await stat(realPath).catch(() => undefined)
+    if (info?.isFile() !== true) throw unavailable()
+    return { path: realPath, info }
+  }
+
+  // A file a turn presented, by the coordinates its Bot row carries. Presented files keep
+  // their own part's sessionId, because seq is local to one Session.
+  async function presentedFile(sessionId, seq, index) {
+    if (!ownedSessions(sessionId).has(sessionId)) throw unavailable()
+    let beforeSeq
+    for (;;) {
+      const page = await ctx.sessionController.page({
+        address: { kind: 'session', sessionId },
+        ...(beforeSeq !== undefined ? { beforeSeq } : {}),
+        maxMessages: 500,
+      }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
+      for (const record of page.records) {
+        const event = record.event
+        if (event?.type !== 'deliverables/presented' || Number(event.seq) !== seq) continue
+        const file = Array.isArray(event.data?.files) ? event.data.files[index] : undefined
+        if (typeof file?.path !== 'string') continue
+        return { name: typeof file.name === 'string' && file.name !== '' ? file.name : nameOf(file.path), ...await fileAt(file.path) }
+      }
+      if (page.hasMore !== true) break
+      beforeSeq = page.records[0]?.event?.seq
+      if (beforeSeq === undefined) break
+    }
+    throw unavailable()
+  }
+
+  // Images a Bot's reply shows from files on this computer: a Markdown image, or an image
+  // file the turn presented. One message over the phone link carries at most 4 MiB
+  // (link/crates/core/src/frag.rs) after base64, so a larger image goes as a JPEG of it.
+  const SHOWN_IMAGE = /\.(png|jpe?g|gif|webp)$/i
+  const SHOWN_WHOLE_MAX = 2 * 1024 * 1024
+  const SHOWN_READ_MAX = 32 * 1024 * 1024
+  const SHOWN_EDGE = 2048
+  const notImage = () => Object.assign(new Error('Not an image'), { code: 'bot/invalid' })
+  const tooLargeToShow = () => Object.assign(new Error('This image is too large to show on the phone'), { code: 'bot/refused' })
+
+  async function fileImage({ path, info }, preview) {
+    // The file's version is in the key, so an image written over shows anew.
+    const key = `file:${path}:${info.size}:${info.mtimeMs}`
+    if (preview && previews.get(key)) return shown(key)
+    if (info.size > SHOWN_READ_MAX) throw tooLargeToShow()
+    const bytes = await readFile(path)
+    const mime = mimeOf(path)
+    if (preview) {
+      const small = await previewImage(bytes, mime).catch(() => null)
+      keep(key, small)
+      if (small !== null) return shown(key)
+    } else if (bytes.length > SHOWN_WHOLE_MAX) {
+      const large = await previewImage(bytes, mime, { edge: SHOWN_EDGE, quality: 85, always: true }).catch(() => null)
+      if (large !== null) return { mime: 'image/jpeg', data: large.toString('base64') }
+    }
+    if (bytes.length > SHOWN_WHOLE_MAX) throw tooLargeToShow()
+    return { mime, data: bytes.toString('base64') }
+  }
+
+  // A Markdown image, by the destination the reply wrote. A relative path names a file in
+  // the folder of the chat that shows it, as DSH's chat reads it.
+  async function shownImage(body) {
+    const sessionId = String(body.sessionId ?? '')
+    ownedSessions(sessionId)
+    const path = linkPath(body.path)
+    if (path === undefined || !SHOWN_IMAGE.test(path)) throw notImage()
+    if (isAbsolute(path)) return fileImage(await fileAt(path), body.preview === true)
+    const folder = rt.sessionFolder?.(ctx.get?.('agents')?.get?.(sessionId)?.session ?? { id: sessionId })
+    if (folder === undefined) throw unavailable()
+    return fileImage(await fileAt(resolve(folder, path)), body.preview === true)
+  }
+
+  async function presentedImage(body) {
+    const file = await presentedFile(String(body.sessionId ?? ''), body.seq, Number.isInteger(body.index) ? body.index : 0)
+    if (!SHOWN_IMAGE.test(file.name) && !SHOWN_IMAGE.test(file.path)) throw notImage()
+    return fileImage(file, body.preview === true)
+  }
+
   async function fileDownload(body) {
     const chunked = body.offset !== undefined
     const offset = chunked ? body.offset : 0
@@ -461,24 +567,25 @@ export function install(rt) {
     const presentedIndex = Number.isInteger(body.index) ? body.index : 0
     if (attachmentId === undefined && presentedSeq === undefined) throw Object.assign(new Error('No file named'), { code: 'bot/invalid' })
     const sessionId = String(body.sessionId ?? '')
-    const groupOwner = rt.groupOwners?.get(sessionId)
-    const pastOwner = rt.pastOwners.get(sessionId)
-    const memberBotId = groupOwner?.botId ?? (pastOwner?.roomId !== undefined ? pastOwner.botId : undefined)
-    const room = rt.roomOf(sessionId) ?? rt.roomOf(groupOwner?.roomId ?? pastOwner?.roomId)
-    const botId = memberBotId ?? (room === undefined
-      ? rt.chatOwners.get(sessionId) ?? pastOwner?.botId ?? rt.botOf(sessionId)?.id
-      : undefined)
-    if (botId === undefined && room === undefined) throw Object.assign(new Error('Unknown session'), { code: 'bot/not-found' })
-    const owned = new Set([
-      ...(room !== undefined && memberBotId === undefined ? [rt.sessionOfRoom(room)] : []),
-      ...(room !== undefined && memberBotId !== undefined && room.sessions?.[memberBotId] ? [room.sessions[memberBotId]] : []),
-      ...(room === undefined && botId !== undefined ? [rt.chatOf(botId)] : []),
-      ...rt.partsOf(botId, room?.id).map(part => part.sessionId),
-    ].filter(Boolean))
-    // Presented files keep their own part's sessionId, because seq is local to one Session.
-    if (presentedSeq !== undefined && !owned.has(sessionId)) throw unavailable()
-    const sessions = presentedSeq !== undefined ? [sessionId] : [...owned].reverse()
-    for (const targetId of sessions) {
+    if (presentedSeq !== undefined) {
+      const { name, path, info } = await presentedFile(sessionId, presentedSeq, presentedIndex)
+      if (chunked) {
+        const version = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`
+        if (body.version !== undefined && body.version !== version) throw unavailable()
+        if (offset > info.size) throw unavailable()
+        const handle = await open(path, 'r')
+        try {
+          const bytes = Buffer.alloc(Math.min(FILE_CHUNK_BYTES, info.size - offset))
+          const { bytesRead } = await handle.read(bytes, 0, bytes.length, offset)
+          if (bytesRead !== bytes.length) throw unavailable()
+          return { name, mime: mimeOf(path), bytes: bytes.toString('base64'), size: info.size, version, nextOffset: offset + bytesRead, done: offset + bytesRead === info.size }
+        } finally { await handle.close() }
+      }
+      if (info.size > FILE_DOWNLOAD_MAX) throw tooLarge()
+      const bytes = await readFile(path)
+      return { name, mime: mimeOf(path), bytes: bytes.toString('base64'), size: bytes.length }
+    }
+    for (const targetId of [...ownedSessions(sessionId)].reverse()) {
       let beforeSeq
       for (;;) {
         const page = await ctx.sessionController.page({
@@ -488,30 +595,6 @@ export function install(rt) {
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
         for (const record of page.records) {
           const event = record.event
-          if (presentedSeq !== undefined && event?.type === 'deliverables/presented' && Number(event.seq) === presentedSeq) {
-            const file = Array.isArray(event.data?.files) ? event.data.files[presentedIndex] : undefined
-            if (typeof file?.path !== 'string') continue
-            const realPath = await rt.real?.(file.path)
-            if (realPath && await rt.inData?.(realPath)) throw unavailable()
-            const info = await stat(realPath ?? file.path).catch(() => undefined)
-            if (info?.isFile() !== true) throw unavailable()
-            if (chunked) {
-              const version = `${info.dev}:${info.ino}:${info.size}:${info.mtimeMs}`
-              if (body.version !== undefined && body.version !== version) throw unavailable()
-              if (offset > info.size) throw unavailable()
-              const handle = await open(realPath ?? file.path, 'r')
-              try {
-                const bytes = Buffer.alloc(Math.min(FILE_CHUNK_BYTES, info.size - offset))
-                const { bytesRead } = await handle.read(bytes, 0, bytes.length, offset)
-                if (bytesRead !== bytes.length) throw unavailable()
-                return { name: file.name || nameOf(file.path), mime: mimeOf(file.path), bytes: bytes.toString('base64'), size: info.size, version, nextOffset: offset + bytesRead, done: offset + bytesRead === info.size }
-              } finally { await handle.close() }
-            }
-            if (info.size > FILE_DOWNLOAD_MAX) throw tooLarge()
-            const bytes = await readFile(realPath ?? file.path)
-            return { name: typeof file.name === 'string' && file.name !== '' ? file.name : nameOf(file.path), mime: mimeOf(file.path), bytes: bytes.toString('base64'), size: bytes.length }
-          }
-          if (attachmentId === undefined) continue
           const content = Array.isArray(event?.data?.content) ? event.data.content : []
           for (const block of content) {
             if (block?.type !== 'file' || String(block.attachment?.attachmentId) !== attachmentId) continue
