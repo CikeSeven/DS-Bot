@@ -39,3 +39,6 @@ __pycache__/
 
 # The phone link's Rust build output.
 /link/target/
+
+# Local Claude Code settings and data.
+.claude/
