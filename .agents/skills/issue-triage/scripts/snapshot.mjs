@@ -31,9 +31,9 @@ const days = iso => Math.floor((Date.now() - new Date(iso).getTime()) / DAY)
 const pullRefs = new Map()
 for (const pull of pulls) for (const n of refsIn(`${pull.title}\n${pull.body}`)) pullRefs.set(n, [...(pullRefs.get(n) ?? []), pull.number])
 
-// Commits on dev and main that name an issue: the cheapest evidence that it is fixed.
+// Commits on main that name an issue: the cheapest evidence that it is fixed.
 const commitRefs = new Map()
-for (const branch of ['origin/dev', 'origin/main']) {
+for (const branch of ['origin/main']) {
   let log = ''
   try { log = run('git', ['log', branch, '-n', '3000', '--format=%h%x1f%s%x1f%b%x1e']) } catch { continue }
   for (const entry of log.split('\x1e')) {

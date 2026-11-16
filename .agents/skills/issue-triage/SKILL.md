@@ -19,7 +19,7 @@ description: 给 DS Bot 仓库的 Issue 和 PR 分诊：打类型、优先级、
 node .agents/skills/issue-triage/scripts/snapshot.mjs --out /tmp/triage
 ```
 
-先读 `digest.md` 再判断，不要只看标题。digest 把每个 Issue 列成：标签、天数、评论数、正文和别人评论的摘要、`dev`/`main` 上引用它的提交、引用它的 Open PR。最上面是**待处理**：
+先读 `digest.md` 再判断，不要只看标题。digest 把每个 Issue 列成：标签、天数、评论数、正文和别人评论的摘要、`main` 上引用它的提交、引用它的 Open PR。最上面是**待处理**：
 
 - 没有类型或没有优先级的
 - 有两个优先级的
@@ -49,8 +49,7 @@ node .agents/skills/issue-triage/scripts/snapshot.mjs --out /tmp/triage
 
 | 组 | 判据 | 动作 |
 |---|---|---|
-| 已修，未发版 | `dev` 上有提交或已合并的 PR 修了它 | 不关。评论写明 PR 号，等发版时 Release PR 的 `Fixes #N` 自动关 |
-| 已修，已发版 | `main` 上有修复，CHANGELOG 有记录，或能指出守住它的测试 | `completed` 关，评论写具体的 PR、提交或测试名 |
+| 已修 | `main` 上有提交或已合并的 PR 修了它，或能指出守住它的测试 | `completed` 关，评论写具体的 PR、提交或测试名 |
 | 重复 | 和另一个 Issue 是同一个原因 | 加 `duplicate`，链接那一个，`not planned` 关 |
 | 上游 | 原因在 DSH 或别的插件 | 加 `upstream`，链接该去的地方。我们这边无事可做时 `not planned` 关 |
 | 提问 | 怎么装、怎么用 | 在网页上 **Convert to discussion**，转到 Q&A（CLI 做不了，见 gotchas） |

@@ -41,17 +41,19 @@ CONTEXT_WINDOW=100000 CHECK_RATIO=0.45 dev/bench.sh smoke 3096 8796 reset && nod
 dev/bench.sh smoke 3096 8796 stop
 ```
 
+For the phone app, run `flutter analyze` and `flutter test` in `mobile_flutter/`; for the phone link, `cargo test --workspace` in `link/`.
+
 A change is done when `npm test`, the `--check` and `npm run lint` pass; CI runs them on every pull request. Run the smoke test as well for changes to `index.js` or `src/host/`. Use a free port for each bench, and stop every bench and process that you started.
 
 ## Branches, pull requests and issues
 
-The full workflow is in [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work). The parts that an agent must follow:
+This repository is the fork CikeSeven/DS-Bot, developed on its own. `main` is the only long-lived branch; every change reaches it through a pull request. The full workflow is in [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work). The parts that an agent must follow:
 
-- Start work from the latest `dev` on a branch named `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>` or `chore/<name>`. Never start a branch name with `dev/`. Open the pull request into `dev`, not `main`; only releases and hotfixes go into `main`.
-- Bring a branch up to date with `scripts/merge-dev.sh`: it merges `origin/dev`, takes a conflicting `ds-bot/client.js` from dev and rebuilds it. Never rebase a pushed branch and never force-push.
-- Fill in the pull request template. Link the issue with `Fixes #<number>`; a bug fix names the bug it fixes. Write the user-visible change in the Changelog field, and do not edit `CHANGELOG.md`.
-- Do not start work on an issue or pull request with the `maintainer` label; it waits for the maintainer. Do not take an issue that someone else is assigned to.
-- Before you change behavior, read the design for it in `docs/plans/` (and `docs/vision.md`); for interface work also `docs/design/ui-standard.md`. A change to a decided design needs the maintainer; a new large feature adds its design note to the same pull request.
+- Make every code change in a new git worktree, on a branch from the latest `origin/main` named `fix/<name>`, `feat/<name>`, `docs/<name>` or `chore/<name>` (with the issue number when there is one, as in `fix/<issue>-<name>`). If your tool names the branch itself, rename it before the first push. Never edit code in the main checkout; it stays on `main` and stays clean.
+- When the change is done and the checks under Commands pass for the parts you changed, push the branch to `origin` and open a pull request into `main`. Never push to `upstream` (Fei2411/DS-Bot) and never open a pull request there.
+- Before you open the pull request, fetch and check whether `main` has new commits since your branch started (`git log HEAD..origin/main`). If it has, run `scripts/merge-main.sh`, resolve any conflicts and run the checks again. The script merges `origin/main`, takes a conflicting `ds-bot/client.js` from `main` and rebuilds it. Never rebase a pushed branch and never force-push.
+- Fill in the pull request template. Link the issue with `Fixes #<number>` when there is one; a bug fix names the bug it fixes. Write the user-visible change in the Changelog field, and do not edit `CHANGELOG.md`.
+- Before you change behavior, read the design for it in `docs/plans/` (and `docs/vision.md`); for interface work also `docs/design/ui-standard.md`. A change to a decided design needs the owner of the fork; a change the owner asks for is decided. A new large feature adds its design note to the same pull request.
 - Do not close an issue without evidence: the pull request or commit that fixed it, the issue it duplicates, or the reason it will not be fixed.
 - To triage issues, follow [.agents/skills/issue-triage/SKILL.md](.agents/skills/issue-triage/SKILL.md).
 - To record a demonstration GIF for an interface change, follow [.agents/skills/record-browser-gif/SKILL.md](.agents/skills/record-browser-gif/SKILL.md).

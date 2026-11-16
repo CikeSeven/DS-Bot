@@ -1,6 +1,6 @@
 <!--
-Base branch: dev. Hotfixes and releases only: main.
-目标分支选 dev。只有热修和发版才选 main。
+Base branch: main. Bring the branch up to date with scripts/merge-main.sh first.
+目标分支选 main。提之前先用 scripts/merge-main.sh 同步 main。
 -->
 
 ## Issue
@@ -23,6 +23,7 @@ Fixes #
 - [ ] `node scripts/build-client.mjs --check`
 - [ ] `npm run lint`
 - [ ] Smoke test, for changes to `index.js` or `src/host/` / 改了 `index.js` 或 `src/host/` 时跑冒烟测试
+- [ ] `flutter analyze` and `flutter test`, for changes to `mobile_flutter/` / 改了 `mobile_flutter/` 时跑
 - [ ] Screenshot attached, for interface changes / 界面改动已附截图
 
 ## Checklist / 检查

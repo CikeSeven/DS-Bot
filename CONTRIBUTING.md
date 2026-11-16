@@ -6,7 +6,7 @@ Thank you for helping. This file explains how the team works, how to set up the 
 
 ## Who can open pull requests
 
-Collaborators of this repository push branches here and open pull requests into `dev` (see [How we work](#how-we-work)). For now, only collaborators can open pull requests. If you are not a collaborator, please open an issue for a bug (see [Report a problem](#report-a-problem)) or use [Discussions](https://github.com/CikeSeven/DS-Bot/discussions) for a question or an idea.
+Collaborators of this repository push branches here and open pull requests into `main` (see [How we work](#how-we-work)). For now, only collaborators can open pull requests. If you are not a collaborator, please open an issue for a bug (see [Report a problem](#report-a-problem)) or use [Discussions](https://github.com/CikeSeven/DS-Bot/discussions) for a question or an idea.
 
 ## The rules that matter most
 
@@ -24,13 +24,11 @@ Anyone on the team can do any kind of work: triage, bug fixes, features, the int
 
 | Branch | What it is | Who merges |
 |---|---|---|
-| `dev` | Integration branch. All fixes and features go here first | Every collaborator, when CI passes |
-| `main` | Released code only. It changes when the maintainer merges `dev` for a release, or merges a hotfix | The maintainer |
-| `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `dev` | — |
+| `main` | The only long-lived branch. Every fix and feature goes here through a pull request; releases are tagged on it | The maintainer, when CI passes |
+| `fix/<issue>-<name>`, `feat/<issue>-<name>`, `docs/<name>`, `chore/<name>` | Your work. Start it from the latest `main`; leave out the issue number when there is none | — |
 
-- Do not start a branch name with `dev/`. Git cannot create `dev/<name>` while the branch `dev` exists.
-- To bring your branch up to date, run `scripts/merge-dev.sh`: it merges `origin/dev`, and a conflict in the generated `ds-bot/client.js` is taken from dev and rebuilt (on a hotfix branch, `git merge main`). Do not rebase a pushed branch and do not force-push.
-- `main` is the default branch, so GitHub suggests `main` as the base of a new pull request. Change the base to `dev`.
+- Make each change in its own git worktree, so that the main checkout stays on `main` and stays clean.
+- To bring your branch up to date, run `scripts/merge-main.sh`: it merges `origin/main`, and a conflict in the generated `ds-bot/client.js` is taken from `main` and rebuilt. Do it before you open a pull request when `main` has moved on. Do not rebase a pushed branch and do not force-push.
 
 ### Issues
 
@@ -56,10 +54,9 @@ An issue that spans several areas, or none, gets no area label.
 
 ### Pull requests
 
-1. Open the pull request into `dev` and fill in the template. Link the issue with `Fixes #<number>`; a bug fix always names the bug it fixes. When opening a pull request from a fork, keep **Allow edits from maintainers** turned on so that the maintainer can resolve conflicts or make small adjustments before merging.
+1. Open the pull request into `main` and fill in the template. Link the issue with `Fixes #<number>`; a bug fix always names the bug it fixes. When opening a pull request from a fork, keep **Allow edits from maintainers** turned on so that the maintainer can resolve conflicts or make small adjustments before merging.
 2. Write one sentence about what users will notice in the **Changelog** field of the template, or "none". Do not edit `CHANGELOG.md`: the maintainer writes it from these sentences at release time.
-3. When CI passes, merge it yourself with **Create a merge commit**, then delete the branch. A review is not required; if you want one, ask a teammate in the pull request.
-4. A fix that is merged into `dev` does not close its issue: `Fixes #<number>` acts only on the default branch. The issue stays open until the release, which means "fixed in `dev`, not released yet".
+3. When CI passes, the maintainer merges it with **Create a merge commit** and deletes the branch. `Fixes #<number>` closes the issue at that merge.
 
 Keep one pull request to one issue. Split a large change into several pull requests.
 
@@ -70,10 +67,8 @@ Keep one pull request to one issue. Split a large change into several pull reque
 
 ### Releases (maintainer)
 
-1. In a pull request into `dev`, set the version in `ds-bot/package.json` and write the `CHANGELOG.md` section from the Changelog sentences of the merged pull requests.
-2. Open a pull request from `dev` into `main` titled `release: vX.Y.Z`. List every `Fixes #<number>` of the release in its description, so that these issues close when it is merged.
-3. Before you merge it, run the [release checklist](docs/dev/release-checklist.md) (in Chinese) on a real Windows machine, and on macOS when the change touches it, and post the result in the pull request. Merge it with a merge commit and publish a GitHub release `vX.Y.Z` on `main`, with "Set as the latest release" turned off: the workflow marks it latest itself once the installers, `SHA256SUMS.txt` and the download table are attached. The Release workflow checks that the tag matches the version and is on `main`, runs the checks and publishes the package to npm (a pre-release version under the npm tag `next`). Do not run `npm publish` by hand.
-4. For a hotfix, start `fix/hot-<name>` from `main`, open the pull request into `main`, release a patch version, then merge `main` into `dev`.
+1. Open a pull request into `main` titled `release: vX.Y.Z`: set the version in `ds-bot/package.json` and write the `CHANGELOG.md` section from the Changelog sentences of the pull requests merged since the last release.
+2. Before you merge it, run the [release checklist](docs/dev/release-checklist.md) (in Chinese) on a real Windows machine, and on macOS when the change touches it, and post the result in the pull request. Merge it with a merge commit and publish a GitHub release `vX.Y.Z` on `main`, with "Set as the latest release" turned off: the workflow marks it latest itself once the installers, `SHA256SUMS.txt` and the download table are attached. The Release workflow checks that the tag matches the version and is on `main`, runs the checks and publishes the package to npm (a pre-release version under the npm tag `next`). Do not run `npm publish` by hand.
 
 ## Set up
 

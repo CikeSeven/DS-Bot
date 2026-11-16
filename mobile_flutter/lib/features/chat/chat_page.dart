@@ -19,6 +19,7 @@ import '../../ui/avatar.dart';
 import '../../ui/i18n.dart';
 import '../../ui/icons.dart';
 import '../../ui/island.dart';
+import '../../ui/menu/action_menu.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 import '../home/home_shell.dart';
@@ -151,7 +152,7 @@ class _ChatPageState extends State<ChatPage> {
                       middle: _TitleIsland(bot: bot, room: room, team: team, session: session),
                       trailing: _ActionsIsland(
                         onSide: bot == null ? null : () => push(context, SideChatPage(botId: bot.id)),
-                        onMore: team == null ? null : () => _more(context, team, bot, room),
+                        actions: team == null ? null : _moreActions(context, team, session, bot, room),
                       ),
                       middleSpacing: 10,
                     ),
@@ -371,13 +372,11 @@ class _ChatPageState extends State<ChatPage> {
     ]);
   }
 
-  void _more(BuildContext context, TeamState team, Bot? bot, Room? room) {
-    final session = TeamScope.read(context);
-    showActions(context, [
+  // Details (the title island) and Side chat (its own button) are not repeated here.
+  List<MenuAction> _moreActions(BuildContext context, TeamState team, TeamSession session, Bot? bot, Room? room) {
+    return [
       if (bot != null) ...[
-        MenuAction(t('Details'), AppIcon.forward, () => openBotDetails(context, bot.id)),
         MenuAction(t('Memory'), AppIcon.memory, () => push(context, MemoryPage(botId: bot.id))),
-        MenuAction(t('Side chat'), AppIcon.sparkle, () => push(context, SideChatPage(botId: bot.id))),
         MenuAction(t('New conversation'), AppIcon.plus, () => _newPart(context, bot)),
         MenuAction(t('Earlier conversations'), AppIcon.history, () => push(context, EarlierPage(botId: bot.id))),
         if (team.browserEnabled) MenuAction(t('Browser'), AppIcon.globe, () => push(context, BrowserPage(botId: bot.id))),
@@ -391,7 +390,7 @@ class _ChatPageState extends State<ChatPage> {
         MenuAction(t('Task board'), AppIcon.board, () => push(context, TaskBoardPage(roomId: room.id))),
         MenuAction(t('Search messages'), AppIcon.search, () => push(context, SearchPage(roomId: room.id))),
       ],
-    ]);
+    ];
   }
 }
 
@@ -464,14 +463,17 @@ class _TitleIsland extends StatelessWidget {
 
 /// The right island: Side chat (for a Bot) and the menu, side by side.
 class _ActionsIsland extends StatelessWidget {
-  const _ActionsIsland({required this.onSide, required this.onMore});
+  const _ActionsIsland({required this.onSide, required this.actions});
 
   final VoidCallback? onSide;
-  final VoidCallback? onMore;
+  final List<MenuAction>? actions;
 
   @override
   Widget build(BuildContext context) {
-    final more = IconBtn(AppIcon.more, onTap: onMore);
+    final actions = this.actions;
+    final more = actions == null
+        ? const IconBtn(AppIcon.more)
+        : ActionMenu(actions: actions, builder: (context, toggle) => IconBtn(AppIcon.more, onTap: toggle));
     if (onSide == null) return IslandButton(child: more);
     return GlassIsland(
       child: SizedBox(

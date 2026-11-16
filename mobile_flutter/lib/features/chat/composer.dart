@@ -17,6 +17,8 @@ import '../../ui/avatar.dart';
 import '../../ui/i18n.dart';
 import '../../ui/icons.dart';
 import '../../ui/island.dart';
+import '../../ui/menu/action_menu.dart';
+import '../../ui/menu/expressive_menu.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 
@@ -191,13 +193,11 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
     if (mounted) setState(() {});
   }
 
-  void _attach() {
-    showActions(context, [
-      if (widget.canPhotos) MenuAction(t('Photos'), AppIcon.image, _pickPhotos),
-      if (widget.canPhotos) MenuAction(t('Camera'), AppIcon.camera, () => _pickPhotos(camera: true)),
-      if (widget.canFiles) MenuAction(t('Files'), AppIcon.clip, _pickFiles),
-    ]);
-  }
+  List<MenuAction> get _attachActions => [
+        if (widget.canPhotos) MenuAction(t('Photos'), AppIcon.image, _pickPhotos),
+        if (widget.canPhotos) MenuAction(t('Camera'), AppIcon.camera, () => _pickPhotos(camera: true)),
+        if (widget.canFiles) MenuAction(t('Files'), AppIcon.clip, _pickFiles),
+      ];
 
   @override
   Widget build(BuildContext context) {
@@ -315,7 +315,13 @@ class _ComposerState extends State<Composer> with SingleTickerProviderStateMixin
                 morph: _morph.value,
                 empty: _text.text.isEmpty,
                 onOverflow: _onOverflow,
-                attach: canAttach ? _RoundButton(icon: AppIcon.plus, color: Colors.transparent, ink: p.ink2, onTap: _attach, tooltip: t('Attach')) : null,
+                attach: canAttach
+                    ? ActionMenu(
+                        actions: _attachActions,
+                        placement: ExpressiveMenuPlacement.start,
+                        builder: (context, toggle) => _RoundButton(icon: AppIcon.plus, color: Colors.transparent, ink: p.ink2, onTap: toggle, tooltip: t('Attach')),
+                      )
+                    : null,
                 field: field,
                 send: AnimatedSwitcher(
                   duration: const Duration(milliseconds: 200),
