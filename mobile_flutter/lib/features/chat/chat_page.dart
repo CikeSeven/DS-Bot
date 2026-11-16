@@ -219,6 +219,8 @@ class _ChatPageState extends State<ChatPage> {
         ),
       ..._workRows(context, team, bot, room),
     ];
+    // Rows below the last part line are the current part's, the only ones a recall reaches.
+    final partStart = rows.lastIndexWhere((row) => row.kind == 'divider');
     final count = rows.length + foot.length + 1;
     final list = ListView.builder(
       controller: _scroll,
@@ -239,7 +241,8 @@ class _ChatPageState extends State<ChatPage> {
             ),
           );
         }
-        final row = rows[rows.length - 1 - i];
+        final at = rows.length - 1 - i;
+        final row = rows[at];
         return Padding(
           key: ValueKey(row.key),
           padding: const EdgeInsets.only(top: 6),
@@ -253,7 +256,7 @@ class _ChatPageState extends State<ChatPage> {
             userMax: userMax,
             admin: room?.admin,
             botId: bot?.id,
-            onLongPress: (row) => _rowMenu(context, row, chat),
+            onLongPress: (row) => _rowMenu(context, row, chat, current: at > partStart),
             onRetry: chat.retry,
             onDiscard: chat.discard,
           ),
@@ -357,9 +360,10 @@ class _ChatPageState extends State<ChatPage> {
     _chat?.refresh();
   }
 
-  void _rowMenu(BuildContext context, ChatRow row, ChatSession chat) {
+  void _rowMenu(BuildContext context, ChatRow row, ChatSession chat, {bool current = false}) {
     final text = sourceTextOf(row.item);
     final seq = jInt(row.item, 'seq');
+    final canRecall = current && !_room && row.kind == 'user' && seq != null && jStr(row.item, 'localId') == null && TeamScope.read(context).has('recall');
     showActions(context, [
       if (text.isNotEmpty)
         MenuAction(t('Copy'), AppIcon.copy, () {
@@ -370,7 +374,33 @@ class _ChatPageState extends State<ChatPage> {
       if (text.isNotEmpty) MenuAction(t('Quote'), AppIcon.quote, () => _composer.insert('${text.split('\n').map((line) => '> $line').join('\n')}\n')),
       if (text.isNotEmpty) MenuAction(t('Share'), AppIcon.share, () => SharePlus.instance.share(ShareParams(text: text))),
       if (seq != null && row.kind != 'user') MenuAction(t('File changes'), AppIcon.diff, () => openChanges(context, chat.sessionId, seq)),
+      if (canRecall) MenuAction(t('Recall'), AppIcon.recall, () => unawaited(_recall(context, row, chat))),
     ]);
+  }
+
+  /// Takes the message and everything after it out of the Bot's chat. Asks first
+  /// only when the Bot changed files after it; the text goes back in the message box.
+  Future<void> _recall(BuildContext context, ChatRow row, ChatSession chat) async {
+    final target = {'botId': _id, 'sessionId': chat.sessionId, 'seq': jInt(row.item, 'seq'), 'time': ?jInt(row.item, 'time')};
+    final check = await run(context, 'recall-check', target);
+    if (check == null || !context.mounted) return;
+    final name = TeamScope.read(context).team?.bot(_id)?.name ?? '';
+    final warning = recallWarning(asJson(check), name);
+    if (warning.isNotEmpty) {
+      final files = jStrings(check, 'files');
+      final ok = await confirmDanger(
+        context,
+        title: t('Recall this message?'),
+        body: files.isEmpty ? warning : '$warning\n${files.take(3).join(t(', '))}${(jInt(check, 'count') ?? 0) > files.take(3).length ? '…' : ''}',
+        action: t('Recall'),
+      );
+      if (!ok || !context.mounted) return;
+    }
+    final result = await run(context, 'recall', target);
+    if (result == null || !context.mounted) return;
+    final text = jStr(result, 'text') ?? '';
+    if (text.isNotEmpty) _composer.insert(text);
+    unawaited(chat.reload());
   }
 
   // Details (the title island) and Side chat (its own button) are not repeated here.

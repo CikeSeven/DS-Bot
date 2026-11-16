@@ -1,6 +1,12 @@
 // Japanese (ja) localization for DS Bot client and DSH settings namespaces.
 
 export const JA = {
+  "Recall": "送信取消",
+  "Recall this message?": "このメッセージの送信を取り消しますか？",
+  "You recalled a message": "メッセージの送信を取り消しました",
+  "{name} changed a file after this message. Recalling leaves it as it is.": "{name} はこのメッセージの後に 1 個のファイルを変更しました。取り消してもファイルは元に戻りません。",
+  "{name} changed {count} files after this message. Recalling leaves them as they are.": "{name} はこのメッセージの後に {count} 個のファイルを変更しました。取り消してもファイルは元に戻りません。",
+  "{name} may have changed files after this message. Recalling leaves them as they are.": "{name} はこのメッセージの後にファイルを変更した可能性があります。取り消してもファイルは元に戻りません。",
   "Opening…": "開いています…",
   "Still opening…": "まだ開いています…",
   "Android beta": "Android ベータ版",

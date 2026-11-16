@@ -122,6 +122,37 @@ export function summaryBlocks(text) {
   return blocks
 }
 
+// Where a node of a Bot's own chat sits against the recalls of its part (recall.js on
+// the host): 'message' for the recalled message itself, 'cut' for what came after it.
+// A node is placed by its anchor seq; one without it by its turn.
+export function recallOf(roster, sessionId, node) {
+  const recalls = roster.recalls?.[sessionId]
+  if (!Array.isArray(recalls) || recalls.length === 0 || node === undefined || node === null) return undefined
+  const seq = node.anchorSeq ?? node.data?.seq
+  const turn = node.location?.turn?.turn ?? node.data?.turn
+  for (const entry of recalls) {
+    if (Number.isFinite(seq)) {
+      if (seq === entry.seq) return 'message'
+      if (seq > entry.seq && seq <= entry.until) return 'cut'
+    } else if (Number.isFinite(turn) && ((turn > entry.turn && turn <= entry.last) || (turn === entry.turn && entry.opened))) {
+      return 'cut'
+    }
+  }
+  return undefined
+}
+
+// The turns recalls took away whole, for what lists a chat by turn.
+export function recalledTurns(roster, sessionId) {
+  const turns = []
+  for (const entry of roster.recalls?.[sessionId] ?? []) {
+    for (let turn = entry.opened ? entry.turn : entry.turn + 1; turn <= entry.last; turn += 1) turns.push(turn)
+  }
+  return turns
+}
+
+// Turns a chat listed by turn leaves out: Bot-to-Bot exchanges and recalled turns.
+export const turnsLeftOut = (roster, sessionId) => [...(roster.exchangeTurns?.[sessionId] ?? []), ...recalledTurns(roster, sessionId)]
+
 export function isHiddenTurn(roster, sessionId, turn) {
   if (sessionId === undefined || turn === undefined) return false
   return (roster.exchangeTurns[sessionId] ?? []).includes(turn)

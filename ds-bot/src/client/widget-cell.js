@@ -7,6 +7,7 @@ import { useDockHold } from './card-hold.js'
 import { SettledHandoff } from './handoff-card.js'
 import { SettledComputerHandoff } from './computer.js'
 import { heldCardKey } from './sources.js'
+import { recallOf } from './text.js'
 import { WidgetCard, ViewUi, DEEP_VIEW_CSS, WidgetView as CoreWidgetView, ViewMenuList as CoreViewMenuList } from 'deep-view/react'
 import { checkShownView } from 'deep-view/core'
 
@@ -109,7 +110,9 @@ export function AnsweredView({ node }) {
 // A question reply node carries either questions (data.questions), a view answer or
 // a browser handoff answer (JSON text discriminated by kind); each shape gets its
 // own renderer. A history page has already read the handoff answer into data.handoff.
-export function AnsweredReply({ node }) {
+export function AnsweredReply({ node, sessionId, useRoster }) {
+  const recalled = useRoster?.(roster => recallOf(roster, sessionId, node) !== undefined) === true
+  if (recalled) return h(CellEmpty)
   const data = node?.data ?? {}
   if (Array.isArray(data.views) && data.views.length > 0) return h(AnsweredView, { node })
   if (typeof data.handoff?.reason === 'string') return h(SettledHandoff, { handoff: data.handoff })

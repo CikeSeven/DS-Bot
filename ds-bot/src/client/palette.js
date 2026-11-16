@@ -1,7 +1,7 @@
 import { createElement as h, Fragment, useEffect, useState } from 'react'
 import { FishLogo } from './dsh-primitives.js'
 import { isMainOf } from './sources.js'
-import { currentPart, stripHeader } from './text.js'
+import { currentPart, stripHeader, turnsLeftOut } from './text.js'
 import { PlusIcon, SearchIcon, PeopleIcon, CloseIcon, GearIcon } from './icons.js'
 import { BotAvatar, RoomAvatar } from './mark.js'
 import { useEscape } from './overlay-hooks.js'
@@ -30,7 +30,7 @@ export function CommandPalette({ start, token, roster, actions, useSessions }) {
     for (const id of ids) {
       const outline = list.projectionsBySession?.[id]?.values?.turnOutline ?? list.byId[id]?.projectionValues?.turnOutline
       if (!Array.isArray(outline)) continue
-      const hidden = roster.exchangeTurns[id] ?? []
+      const hidden = turnsLeftOut(roster, id)
       for (let index = outline.length - 1; index >= 0 && hits.length < 30; index -= 1) {
         const entry = outline[index]
         if (hidden.includes(entry.turn)) continue

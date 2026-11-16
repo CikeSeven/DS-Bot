@@ -1,6 +1,12 @@
 // Korean (ko) localization for DS Bot client and DSH settings namespaces.
 
 export const KO = {
+  Recall: '보내기 취소',
+  'Recall this message?': '이 메시지 보내기를 취소할까요?',
+  'You recalled a message': '메시지 보내기를 취소했습니다',
+  '{name} changed a file after this message. Recalling leaves it as it is.': '{name}이(가) 이 메시지 이후 파일 1개를 변경했습니다. 취소해도 파일은 그대로 남습니다.',
+  '{name} changed {count} files after this message. Recalling leaves them as they are.': '{name}이(가) 이 메시지 이후 파일 {count}개를 변경했습니다. 취소해도 파일은 그대로 남습니다.',
+  '{name} may have changed files after this message. Recalling leaves them as they are.': '{name}이(가) 이 메시지 이후 파일을 변경했을 수 있습니다. 취소해도 파일은 그대로 남습니다.',
   'Opening…': '여는 중…',
   'Still opening…': '아직 여는 중…',
   "Android beta": "Android 베타",

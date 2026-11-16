@@ -66,6 +66,8 @@ enum AppIcon {
   arrowDown('<path d="M12 5v14M6 13l6 6 6-6"/>'),
   layers('<path d="M12 4l8.5 4.5L12 13 3.5 8.5z"/><path d="M3.5 12.5L12 17l8.5-4.5M3.5 16.5L12 21l8.5-4.5"/>'),
   history('<path d="M4.5 12a7.5 7.5 0 102.2-5.3M4.5 4.5v4h4"/><path d="M12 8v4.5l3 1.8"/>'),
+  // A message taken back: an arrow that turns round to where it came from.
+  recall('<path d="M9 5.5L5.5 9 9 12.5"/><path d="M5.5 9h8.5a4.75 4.75 0 010 9.5H11"/>'),
   tools('<path d="M14.5 6.5a3.5 3.5 0 004.7 4.3L20 11.6l-8.4 8.4a2 2 0 01-2.8-2.8l8.4-8.4-.8-.8a3.5 3.5 0 01-4.3-4.7l2.4 2.4 1.8-.2.2-1.8z"/>'),
   brain('<path d="M9.5 4.5a3 3 0 00-3 3 3 3 0 00-2 5 3 3 0 002 5 3 3 0 003 2.5h1V4.5zM14.5 4.5a3 3 0 013 3 3 3 0 012 5 3 3 0 01-2 5 3 3 0 01-3 2.5h-1V4.5z"/>'),
   section('<path d="M4 6h16M4 12h10M4 18h13"/>'),

@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:dsbot_mobile/data/chat_items.dart';
 import 'package:dsbot_mobile/data/chat_session.dart';
 import 'package:dsbot_mobile/data/seen.dart';
 import 'package:dsbot_mobile/data/store.dart';
@@ -95,6 +96,29 @@ void main() {
     await settle();
     expect(_users(chat), [(text: 'ok', local: false), (text: 'ok', local: false)]);
     desk.gate.complete();
+  });
+
+  test('a recall on the computer reloads the chat with one line where the message was', () async {
+    final desk = _Desk('recall', echo: false);
+    desk.items.addAll([
+      {'kind': 'user', 'text': 'take this back', 'seq': 2, 'time': 1001},
+      {'kind': 'bot', 'text': 'an answer to it', 'seq': 3, 'time': 1002},
+    ]);
+    final chat = await _open(desk, 'recall');
+    expect(chat.rows.map((row) => row.kind), ['bot', 'user', 'bot']);
+    desk.items
+      ..removeRange(1, 3)
+      ..add({'kind': 'recalled', 'seq': 2, 'time': 1001});
+    desk.link.emit('recall', {'botId': 'recall', 'sessionId': 's-recall', 'seq': 2, 'until': 9});
+    await settle();
+    expect(chat.rows.map((row) => row.kind), ['bot', 'recalled']);
+    desk.gate.complete();
+  });
+
+  test('the recall warning speaks only of changed files', () {
+    expect(recallWarning({'files': <String>[], 'count': 0, 'maybe': false}, 'Writer'), '');
+    expect(recallWarning({'files': ['a.md'], 'count': 2, 'maybe': false}, 'Writer'), 'Writer changed 2 files after this message. Recalling leaves them as they are.');
+    expect(recallWarning({'files': <String>[], 'count': 0, 'maybe': true}, 'Writer'), 'Writer may have changed files after this message. Recalling leaves them as they are.');
   });
 
   test('an older row with the same text never settles a new message', () async {

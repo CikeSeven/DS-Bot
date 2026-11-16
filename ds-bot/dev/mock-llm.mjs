@@ -24,6 +24,7 @@
 //   长文 N / long N (N×1000 characters) · 长任务 N [K] (N steps of K×1000, default 4)
 //   查记录 词 [词…] · 查锚点 part N #序号 · 查第 N 段 (read_own_chat)
 //   上下文里有 词 (searches the context except the last message) · 撑爆 (fake overflow, 400)
+//   写文件 名 (writes a small file of that name in the working folder)
 //   报错 (fake rejected key, 401; also as the text of 转告, so the receiving Bot fails)
 //   卡片 K (K×1000 characters, then a question card) · 笔记模式 截断一次|缺节一次|总截断|总缺节|失败|正常
 //   记住[@话题] 事实 · 团队记住 事实 (remember) · 忘掉 事实 (forget) · 回忆 [词] (recall)
@@ -284,7 +285,9 @@ function decide(body) {
     }
   }
 
-  const userText = textOf(last?.content).trim()
+  // A recall's note (ds-bot recall.js) joins the user's next message in one request; a
+  // model reads past it to the message.
+  const userText = textOf(last?.content).replace(/^(?:\[The user took back [^\]]*\]\s*)+/, '').trim()
   // "撑爆": the provider rejects the request as past its window.
   if (userText.startsWith('撑爆')) return 'overflow'
   // A file in the message (a long Bot message, a file the user sent): DSH gives its saved
@@ -460,6 +463,7 @@ function decide(body) {
   if ((order = /^查锚点\s*([^\n]+)/.exec(userText))) return [tool('read_own_chat', { around: order[1].trim() })]
   if ((order = /^查第\s*(\d+)\s*段/.exec(userText))) return [tool('read_own_chat', { part: Number(order[1]) })]
   if ((order = /^查能力\s*(\S*)/.exec(userText))) return [text(capabilityReport(me, tools, messages, order[1]))]
+  if ((order = /^写文件\s*(\S+)/.exec(userText)) && tools.has('write')) return [tool('write', { file_path: order[1], content: `mock file ${order[1]}\n` })]
   if ((order = /^上下文里有\s*(\S+)/.exec(userText))) {
     const all = messages.slice(0, -1).map(m => textOf(m.content)).join('\n')
     return [text(all.includes(order[1]) ? `上下文里有「${order[1]}」。` : `上下文里没有「${order[1]}」。`)]

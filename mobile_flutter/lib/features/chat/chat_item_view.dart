@@ -75,6 +75,8 @@ class ChatItemView extends StatelessWidget {
             Expanded(child: Divider(color: p.line)),
           ]),
         );
+      case 'recalled':
+        return _Caption(t('You recalled a message'));
       case 'relay':
         final line = relayReplyText(jMap(item, 'reply'));
         return line == null || line.isEmpty ? const SizedBox.shrink() : _Caption(line);

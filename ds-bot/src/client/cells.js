@@ -2,7 +2,7 @@ import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useR
 import { createPortal } from 'react-dom'
 import { MarkdownText, writeClipboard } from './dsh-primitives.js'
 import { inkText } from './inks.js'
-import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
+import { linkMentions, mentionTarget, dayLabel, contentText, stripHeader, isHiddenTurn, recallOf, isRelayContext, relaysBefore, relayPart, commRunOf, toolName, toolArgs, reminderPrompts, elapsedLabel, clockLabel, messageClock } from './text.js'
 import { SmileIcon, ReplyIcon, DotsIcon, CheckIcon, DownloadIcon, CopyIcon, GoalIcon, MemoryIcon } from './icons.js'
 import { ChangesCard } from './changes-card.js'
 import { goalEventText } from './goal.js'
@@ -265,7 +265,7 @@ export function AssistantCell({ node, groupPart, sessionId, openFile, fileMentio
   const steps = useTurnSteps(String(data.turn))
   const contexts = useTurnContext(String(data.turn))
   const mentions = useFileMentions({ node, openFile, fileMentions, useTurnData })
-  const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn)
+  const hidden = Boolean(roster.roomsById[sessionId]) || isHiddenTurn(roster, sessionId, data.turn) || recallOf(roster, sessionId, node) !== undefined
   const texts = groupPart === 'reasoning' ? [] : data.blocks.filter(block => block.kind === 'text' && block.text.trim() !== '').map(block => block.text)
   const running = data.status === 'running'
   const textInteractionSource = data.status === 'settled' && data.finalNode?.messageId !== undefined
@@ -626,6 +626,7 @@ function chatRow(row, key, { sessionId, selfId, roster, actions, useUi, onBtwDel
   switch (row.kind) {
     case 'divider': return h(PartLine, { key, time: row.time })
     case 'user': return h(EarlierUser, { key, row, actions })
+    case 'recalled': return h('div', { key, className: 'bt-event bt-recalled' }, t('You recalled a message'))
     case 'answer': return h(AnsweredReply, { key, node: { data: row } })
     // A question or view card closed without an answer on it.
     case 'closed': return row.view === undefined
@@ -698,6 +699,7 @@ export function TriggerCell({ node, sessionId, useRoster, useSessions, useTurnCl
     const first = openingTurn(state[sessionId], order, hiddenTurns)
     return first?.turn === turn && unseenSince(visit, first.start) ? clockLabel(first.start) : ''
   })
+  if (recallOf(roster, sessionId, node) !== undefined) return h(CellEmpty)
   const body = triggerBody()
   return unreadOpening
     ? h(Fragment, null, h('div', { className: 'bt-open-new' }, h(NewDivider), h('div', { className: 'bt-time-sep', role: 'separator' }, unreadOpening)), body)
@@ -783,6 +785,7 @@ export function TurnProcessCell({ node, sessionId, turnProcess, useRoster, useUi
   const turn = node?.location?.turn?.turn ?? node?.data?.turn
   const start = node?.location?.turn?.start?.time
   const hidden = useRoster(roster => isHiddenTurn(roster, sessionId, turn))
+  const recalled = useRoster(roster => recallOf(roster, sessionId, node) !== undefined)
   // Exchange turns hide their replies but still show their trigger chip, so their start
   // counts for separators too.
   useEffect(() => {
@@ -795,7 +798,7 @@ export function TurnProcessCell({ node, sessionId, turnProcess, useRoster, useUi
     return !hidden && typeof visit?.seen === 'number' && own?.first !== undefined && own.first <= visit.seen
       && own.end !== undefined && own.end > visit.seen && own.end <= visit.entered
   })
-  return fresh ? h(NewDivider) : h(CellEmpty)
+  return fresh && !recalled ? h(NewDivider) : h(CellEmpty)
 }
 
 export function Nothing() { return null }
@@ -829,8 +832,10 @@ export const unseenSince = (visit, time) => typeof visit?.seen === 'number' && t
 // An entry in DSH's own turn tail, after what other plugins put there (the cards of
 // the files a turn delivered). The tail sits right before the next turn's first row,
 // so the separator for a pause between turns renders here.
-export function TurnTailCell({ turn: location, sessionId, useTurnClock, useUi, actions }) {
+export function TurnTailCell({ turn: location, sessionId, useRoster, useTurnClock, useUi, actions }) {
   const turn = location.turn
+  // The tail is the turn's end: a recall that reached it took it away.
+  const recalled = useRoster?.(roster => recallOf(roster, sessionId, { anchorSeq: location.end?.seq, location: { turn: { turn } } }) !== undefined) === true
   // DSH builds the tail from the turn's end, so it is there.
   const time = location.end.time
   useEffect(() => { actions.noteTurnTime(sessionId, turn, 'end', time) }, [sessionId, turn, time])
@@ -846,7 +851,7 @@ export function TurnTailCell({ turn: location, sessionId, useTurnClock, useUi, a
     const start = nextTurnStart(state[sessionId] ?? {}, turn)
     return start !== undefined && start > visit.seen && start <= visit.entered
   })
-  if (!label && !fresh) return null
+  if (recalled || (!label && !fresh)) return null
   return h(Fragment, null,
     label ? h('div', { className: 'bt-time-sep', role: 'separator' }, label) : null,
     fresh ? h(NewDivider) : null)
@@ -1251,11 +1256,12 @@ export function ToolCell({ node, sessionId, useRoster, useUi, useWork, useHeldCa
   const root = node.data.root
   const turn = node.location?.turn?.turn ?? root.turn
   const hidden = isHiddenTurn(roster, sessionId, turn)
+  const recalled = recallOf(roster, sessionId, node) !== undefined
   const findBot = nameOrId => roster.byId[nameOrId] ?? roster.bots.find(bot => bot.name.toLowerCase() === String(nameOrId ?? '').toLowerCase())
   const closed = roster.closedCards?.[sessionId]
   // Hidden Bot-to-Bot turns keep their own calls out of the chat, except a question
   // or view card the user dismissed or answered by message, which settles here.
-  const calls = hidden
+  const calls = recalled ? [] : hidden
     ? callTree(root).filter(call => (toolName(call) === 'ask_user' || toolName(call) === 'show_view') && call.callId && closed?.[call.callId] !== undefined)
     : callTree(root)
   const drawn = calls.filter(call => DRAWN.has(toolName(call)) || isComputerCall(toolName(call)))

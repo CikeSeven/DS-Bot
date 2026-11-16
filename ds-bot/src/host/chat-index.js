@@ -157,6 +157,7 @@ export function install(rt) {
         for (const event of events) {
           last = event.seq
           if (event.type === 'turn/start') turn = event.seq
+          if (rt.recalledAt?.(part.sessionId, event.seq) !== undefined) continue
           const entry = rt.historyEntry(event, false)
           if (entry === undefined) continue
           if (entry.answer) {
@@ -314,5 +315,18 @@ export function install(rt) {
     ].join('\n')
   }
 
-  Object.assign(rt, { eventsBackwards, searchOwnChat, findOwnChat, latestOwnChat, aroundOwnChat, partIndex, ownChatBrief })
+  // A recalled range leaves the index; catching up skips it from then on.
+  async function dropIndexedLines(sessionId, from, through) {
+    const index = await openIndex().catch(() => null)
+    if (index === null) return
+    await catchingUp.get(sessionId)?.catch(() => {})
+    if (index !== chatIndex) return
+    try {
+      index.db.prepare('DELETE FROM lines WHERE session = ? AND seq >= ? AND seq <= ?').run(sessionId, from, through)
+    } catch (error) {
+      rt.warn('ds-bot: recalled lines of %s stay in the chat index: %s', sessionId, error)
+    }
+  }
+
+  Object.assign(rt, { eventsBackwards, searchOwnChat, findOwnChat, latestOwnChat, aroundOwnChat, partIndex, ownChatBrief, dropIndexedLines })
 }
