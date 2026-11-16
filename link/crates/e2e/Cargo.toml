@@ -1,0 +1,15 @@
+[package]
+name = "dsbot-link-e2e"
+description = "Tests of the whole DS Bot link: phone, Relay Server and computer together, with faults."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dsbot-link-core.workspace = true
+dsbot-link-host.workspace = true
+dsbot-link-client.workspace = true
+dsbot-link-relay.workspace = true
+serde_json.workspace = true

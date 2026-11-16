@@ -1,0 +1,35 @@
+# TLS in front of both DS Bot link relays during the move from v1 to v2.
+# Caddy gets and renews the certificate for the site name by itself.
+#
+# Upstreams, as named on a shared Docker network:
+#   dsbot-link-v1:8787     the v1 TS relay already running, serves /v1/link
+#   dsbot-link-relay:8787  this image, serves /v2/link
+#
+# Caddy passes WebSocket upgrades through, puts no time limit on an open
+# WebSocket, and sets X-Forwarded-For to the address it saw. Start both relays
+# with DSBOT_LINK_TRUST_PROXY=1 so their per-address limits see the phone's
+# address and not Caddy's. Do not publish the relays' ports to the internet:
+# a client that reaches them directly could forge X-Forwarded-For.
+
+relay.example.com {
+	handle /v1/link {
+		reverse_proxy dsbot-link-v1:8787 {
+			# Keep open WebSockets for a while when the config is reloaded.
+			stream_close_delay 10m
+		}
+	}
+
+	handle /v2/link {
+		reverse_proxy dsbot-link-relay:8787 {
+			stream_close_delay 10m
+		}
+	}
+
+	handle /healthz {
+		reverse_proxy dsbot-link-relay:8787
+	}
+
+	handle {
+		respond 404
+	}
+}

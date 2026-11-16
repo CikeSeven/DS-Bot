@@ -1,0 +1,25 @@
+[package]
+name = "dsbot-link-client"
+description = "The phone's end of the DS Bot link: the session state machine and its tokio runtime."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["runtime"]
+runtime = ["dep:tokio", "dep:tokio-tungstenite", "dep:futures-util", "dep:rustls"]
+
+[dependencies]
+dsbot-link-core.workspace = true
+serde_json.workspace = true
+tokio = { workspace = true, optional = true }
+tokio-tungstenite = { workspace = true, optional = true }
+futures-util = { workspace = true, optional = true }
+# ring, not aws-lc-rs: it cross-compiles for Android and iOS without CMake or NASM.
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"], optional = true }
+
+[[test]]
+name = "runtime"
+required-features = ["runtime"]

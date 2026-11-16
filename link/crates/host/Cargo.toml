@@ -1,0 +1,11 @@
+[package]
+name = "dsbot-link-host"
+description = "The computer's end of the DS Bot link, without IO."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+dsbot-link-core.workspace = true

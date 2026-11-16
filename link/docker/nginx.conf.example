@@ -1,0 +1,70 @@
+# TLS in front of both DS Bot link relays during the move from v1 to v2.
+# Put this in the http {} context, for example as /etc/nginx/conf.d/dsbot-link.conf.
+#
+# Upstreams, as named on a shared Docker network:
+#   dsbot-link-v1:8787     the v1 TS relay already running, serves /v1/link
+#   dsbot-link-relay:8787  this image, serves /v2/link
+#
+# Start both relays with DSBOT_LINK_TRUST_PROXY=1: they take the client address
+# from the last X-Forwarded-For entry, which nginx appends below. Do not publish
+# the relays' ports to the internet: a client that reaches them directly could
+# forge X-Forwarded-For.
+
+map $http_upgrade $connection_upgrade {
+    default upgrade;
+    ''      close;
+}
+
+upstream dsbot_link_v1 {
+    server dsbot-link-v1:8787;
+}
+
+upstream dsbot_link_v2 {
+    server dsbot-link-relay:8787;
+}
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name relay.example.com;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    server_name relay.example.com;
+
+    ssl_certificate     /etc/letsencrypt/live/relay.example.com/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/relay.example.com/privkey.pem;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+
+    # Shared by both WebSocket locations.
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection $connection_upgrade;
+    # The relays compare a browser's Origin with Host, port included.
+    proxy_set_header Host $http_host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_buffering off;
+    # Idle phones stay connected; the relays send their own pings.
+    proxy_read_timeout 1h;
+    proxy_send_timeout 1h;
+
+    location = /v1/link {
+        proxy_pass http://dsbot_link_v1;
+    }
+
+    location = /v2/link {
+        proxy_pass http://dsbot_link_v2;
+    }
+
+    location = /healthz {
+        proxy_pass http://dsbot_link_v2;
+    }
+
+    location / {
+        return 404;
+    }
+}
