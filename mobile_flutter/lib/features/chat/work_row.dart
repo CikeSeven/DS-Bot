@@ -193,7 +193,7 @@ class _WorkRowState extends State<WorkRow> with SingleTickerProviderStateMixin {
         padding: const EdgeInsets.only(top: 8, right: 40),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
           row,
-          if (since != null) Padding(padding: const EdgeInsets.only(top: 3, left: 42), child: _Elapsed(since: since)),
+          if (since != null) Padding(padding: const EdgeInsets.only(top: 3, left: 42), child: WorkElapsed(since: since)),
         ]),
       ),
     );
@@ -335,16 +335,17 @@ class _FadeIn extends StatelessWidget {
 
 /// How long the Bot has been at it, counted on the computer's clock from when
 /// the turn began.
-class _Elapsed extends StatefulWidget {
-  const _Elapsed({required this.since});
+class WorkElapsed extends StatefulWidget {
+  const WorkElapsed({super.key, required this.since, this.style});
 
   final int since;
+  final TextStyle? style;
 
   @override
-  State<_Elapsed> createState() => _ElapsedState();
+  State<WorkElapsed> createState() => _WorkElapsedState();
 }
 
-class _ElapsedState extends State<_Elapsed> {
+class _WorkElapsedState extends State<WorkElapsed> {
   Timer? _timer;
 
   @override
@@ -364,7 +365,7 @@ class _ElapsedState extends State<_Elapsed> {
   @override
   Widget build(BuildContext context) {
     final ms = math.max(1000, DateTime.now().millisecondsSinceEpoch - widget.since);
-    return Text(t('Working for {time}', {'time': elapsedLabel(ms)}), style: TypeScale.caption.copyWith(color: context.p.ink3));
+    return Text(t('Working for {time}', {'time': elapsedLabel(ms)}), style: widget.style ?? TypeScale.caption.copyWith(color: context.p.ink3));
   }
 }
 

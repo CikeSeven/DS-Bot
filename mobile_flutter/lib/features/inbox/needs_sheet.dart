@@ -17,23 +17,24 @@ import '../chat/view_card.dart';
 import '../manage/browser_page.dart';
 import '../settings/connections_pages.dart';
 
+/// The icon and name of a kind of thing that waits for the user.
+(AppIcon, String) pendingKind(PendingKind kind) => switch (kind) {
+      PendingKind.question => (AppIcon.question, t('Question')),
+      PendingKind.approval => (AppIcon.shield, t('Approval')),
+      PendingKind.secret => (AppIcon.key, t('Secret request')),
+      PendingKind.handoff => (AppIcon.globe, t('Browser handoff')),
+      PendingKind.view => (AppIcon.board, t('Card')),
+      PendingKind.learning => (AppIcon.brain, t('Learned')),
+      PendingKind.connector => (AppIcon.plug, t('Connector')),
+      PendingKind.mail => (AppIcon.mail, t('Mail')),
+    };
+
 class NeedCard extends StatelessWidget {
   const NeedCard({super.key, required this.item, required this.team, this.compact = false});
 
   final PendingItem item;
   final TeamState team;
   final bool compact;
-
-  (AppIcon, String) get _kind => switch (item.kind) {
-        PendingKind.question => (AppIcon.question, t('Question')),
-        PendingKind.approval => (AppIcon.shield, t('Approval')),
-        PendingKind.secret => (AppIcon.key, t('Secret request')),
-        PendingKind.handoff => (AppIcon.globe, t('Browser handoff')),
-        PendingKind.view => (AppIcon.board, t('Card')),
-        PendingKind.learning => (AppIcon.brain, t('Learned')),
-        PendingKind.connector => (AppIcon.plug, t('Connector')),
-        PendingKind.mail => (AppIcon.mail, t('Mail')),
-      };
 
   void _open(BuildContext context) {
     final roomId = item.roomId;
@@ -45,7 +46,7 @@ class NeedCard extends StatelessWidget {
     final p = context.p;
     final bot = team.bot(item.botId);
     final room = team.room(item.roomId);
-    final (icon, label) = _kind;
+    final (icon, label) = pendingKind(item.kind);
     final header = Row(children: [
       BotAvatar(bot: bot, size: 26, ring: p.card),
       const SizedBox(width: 8),
