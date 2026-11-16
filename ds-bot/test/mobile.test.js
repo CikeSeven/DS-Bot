@@ -11,6 +11,8 @@ import { fakeAttachments, fakeContext } from './fake-ctx.js'
 import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
 import { shrink } from '../src/host/preview-worker.js'
+import { sheetNote } from '../src/host/pictures.js'
+import omggif from 'omggif'
 
 // A team with no model: Sessions are made in memory, a group round runs on answers
 // played back through the session/event listeners, and `history` holds the events
@@ -357,16 +359,18 @@ test('a phone stages photos one by one, then send puts them in one message with 
   const { call, sent, stop } = start()
   const { chief } = await team(call)
   const pixel = Buffer.from('ffd8ffe000104a464946', 'hex').toString('base64')
-  assert.deepEqual(await call('stage-image', { mediaType: 'text/html', data: pixel }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a photo DS Bot can send', details: {} } })
+  const page = Buffer.from('<html></html>').toString('base64')
+  assert.deepEqual(await call('stage-image', { mediaType: 'image/png', data: page }), { ok: false, error: { code: 'bot/invalid', message: 'This is not a photo DS Bot can send', details: {} } })
   const first = (await call('stage-image', { mediaType: 'image/jpeg', data: pixel })).value.id
-  const second = (await call('stage-image', { mediaType: 'image/png', data: pixel })).value.id
+  // The bytes decide the type: a JPEG the phone calls a GIF goes as a JPEG.
+  const second = (await call('stage-image', { mediaType: 'image/gif', data: pixel })).value.id
   const before = sent.length
   assert.equal((await call('send', { sessionId: chief, text: 'look', images: [first, second] })).value, true)
   const prompt = sent.slice(before).find(entry => entry.prompt !== undefined).prompt
   assert.deepEqual(prompt.content, [
     { type: 'text', text: 'look' },
     { type: 'image', mediaType: 'image/jpeg', data: pixel },
-    { type: 'image', mediaType: 'image/png', data: pixel },
+    { type: 'image', mediaType: 'image/jpeg', data: pixel },
   ])
   // A photo goes once: sending the same ids again is refused, and photos alone are a message.
   assert.equal((await call('send', { sessionId: chief, text: '', images: [first] })).error.code, 'bot/stale')
@@ -374,6 +378,24 @@ test('a phone stages photos one by one, then send puts them in one message with 
   assert.equal((await call('send', { sessionId: chief, text: '', images: [third] })).ok, true)
   assert.deepEqual(sent.at(-1).prompt.content, [{ type: 'image', mediaType: 'image/jpeg', data: pixel }])
   assert.equal((await call('hello', {})).value.capabilities.includes('send-images'), true)
+  await stop()
+})
+
+test('a phone that stages an animated GIF sends a note and one picture of its frames', async () => {
+  const { call, sent, stop } = start()
+  const { chief } = await team(call)
+  const buf = Buffer.alloc(4096)
+  const writer = new omggif.GifWriter(buf, 4, 4, { palette: [0xffffff, 0xff0000], loop: 0 })
+  for (const fill of [1, 0, 1]) writer.addFrame(0, 0, 4, 4, Array.from({ length: 16 }, () => fill), { delay: 10 })
+  const gif = buf.subarray(0, writer.end()).toString('base64')
+  const id = (await call('stage-image', { mediaType: 'image/gif', data: gif })).value.id
+  assert.equal((await call('send', { sessionId: chief, text: 'lol', images: [id] })).value, true)
+  const [text, note, picture] = sent.at(-1).prompt.content
+  assert.deepEqual(text, { type: 'text', text: 'lol' })
+  assert.deepEqual(note, { type: 'text', text: sheetNote(3, 3) })
+  assert.equal(picture.type, 'image')
+  assert.equal(picture.mediaType, 'image/jpeg')
+  assert.equal(jpeg.decode(Buffer.from(picture.data, 'base64')).width, 4 * 2 + 6)
   await stop()
 })
 

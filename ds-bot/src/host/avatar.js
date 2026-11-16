@@ -6,6 +6,7 @@ import { readFile, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { MAX_AVATAR_IMAGE } from './constants.js'
+import { imageTypeOf } from './pictures.js'
 
 // Base64 is four characters for every three bytes, and the data URL adds a mime
 // prefix, so a raw image must stay under this to fit MAX_AVATAR_IMAGE once stored.
@@ -14,24 +15,12 @@ const MAX_BYTES = Math.floor((MAX_AVATAR_IMAGE - LONGEST_PREFIX.length) / 4) * 3
 const HINT = 'Use a square image; 256x256 is recommended.'
 const MIMES = new Set(['image/png', 'image/jpeg', 'image/webp', 'image/gif'])
 
-const ascii = (bytes, start, end) => Buffer.from(bytes.subarray(start, end)).toString('latin1')
-
-// The real format, from the bytes themselves: an extension, a Content-Type header, or
-// the mime in a data URL can all be wrong.
-function mimeOf(bytes) {
-  if (bytes.length >= 8 && ascii(bytes, 0, 8) === '\x89PNG\r\n\x1a\n') return 'image/png'
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) return 'image/jpeg'
-  if (bytes.length >= 6 && /^GIF8[79]a$/.test(ascii(bytes, 0, 6))) return 'image/gif'
-  if (bytes.length >= 12 && ascii(bytes, 0, 4) === 'RIFF' && ascii(bytes, 8, 12) === 'WEBP') return 'image/webp'
-  return undefined
-}
-
 const tooLarge = size => `The avatar image is too large: ${size} bytes, and the limit is ${MAX_BYTES} bytes (about 120 KB). ${HINT}`
 const NOT_IMAGE = `The avatar must be a PNG, JPEG, WebP, or GIF image. ${HINT}`
 
 function toDataUrl(bytes) {
   if (bytes.length > MAX_BYTES) throw new Error(tooLarge(bytes.length))
-  const mime = mimeOf(bytes)
+  const mime = imageTypeOf(bytes)
   if (mime === undefined) throw new Error(NOT_IMAGE)
   const url = `data:${mime};base64,${bytes.toString('base64')}`
   if (url.length > MAX_AVATAR_IMAGE) throw new Error(tooLarge(bytes.length))
@@ -82,7 +71,7 @@ function readDataUrl(value) {
     throw new Error('The avatar data URL does not hold valid base64 image data.')
   }
   const bytes = Buffer.from(payload, 'base64')
-  return { url: toDataUrl(bytes), bytes, mime: mimeOf(bytes) }
+  return { url: toDataUrl(bytes), bytes, mime: imageTypeOf(bytes) }
 }
 
 // The image behind an avatar data URL: the bytes, the type they really are, and the

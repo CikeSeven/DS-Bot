@@ -4,6 +4,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { install as installBtw } from './btw.js'
 import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
+import { imageTypeOf, pictureParts } from './pictures.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
@@ -688,13 +689,16 @@ export function install(rt) {
         // A photo for the next `send`, one per call: a phone's link carries a few MB per
         // message, so photos travel one by one and the message names them.
         case 'stage-image': {
-          const mediaType = String(body.mediaType ?? '')
           const data = typeof body.data === 'string' ? body.data : ''
-          if (!STAGED_TYPES.has(mediaType) || data === '' || !/^[A-Za-z0-9+/]+={0,2}$/.test(data)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
+          // The bytes decide the type, not `mediaType`: a photo picker that re-encodes
+          // a GIF as a JPEG keeps the .gif name the phone reads its type from.
+          const mediaType = data !== '' && /^[A-Za-z0-9+/]+={0,2}$/.test(data) ? imageTypeOf(Buffer.from(data, 'base64')) : undefined
+          if (!STAGED_TYPES.has(mediaType)) return fail('This is not a photo DS Bot can send', 'bot/invalid')
+          const parts = await pictureParts({ mediaType, data })
           const now = Date.now()
           for (const [id, entry] of staged) if (entry.at < now - STAGED_MS) staged.delete(id)
           const id = randomUUID()
-          staged.set(id, { mediaType, data, at: now })
+          staged.set(id, { parts, at: now })
           return ok({ id })
         }
         // A file for the next `send`, in chunks: each call carries the next bytes at
@@ -746,7 +750,7 @@ export function install(rt) {
             sessionId: body.sessionId,
             content: [
               ...(text === '' ? [] : [{ type: 'text', text }]),
-              ...images.map(({ mediaType, data }) => ({ type: 'image', mediaType, data })),
+              ...images.flatMap(entry => entry.parts),
             ],
           })
           for (const id of ids) staged.delete(id)

@@ -7,6 +7,7 @@ import { chmod, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { replaceFile } from '../files.js'
 import { viewCardText } from '../parts.js'
+import { pictureParts } from '../pictures.js'
 import { imPlatform, IM_PLATFORMS } from '../../shared/im-platforms.js'
 import { REPLY_KIND, SOURCE_KIND } from '../constants.js'
 import { adapters } from './platforms/index.js'
@@ -672,7 +673,7 @@ export function install(rt) {
     const sessionId = target.botId ?? target.roomId
     const content = []
     if (body !== '') content.push({ type: 'text', text: body })
-    for (const image of msg.images ?? []) content.push({ type: 'image', mediaType: image.mediaType, data: image.data })
+    for (const image of msg.images ?? []) content.push(...await pictureParts(image))
     const env = await envFor(conn)
     for (const file of msg.files ?? []) {
       try {

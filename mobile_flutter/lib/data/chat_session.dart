@@ -28,7 +28,7 @@ class ChatPageData {
   ChatPageData withItems(List<Json> items) => ChatPageData(sessionId: sessionId, items: items, cursor: cursor);
 }
 
-/// A photo ready to send: shown from [bytes], sent as base64 JPEG.
+/// A photo ready to send: shown from [bytes], sent as base64 of the type in [mediaType].
 class OutgoingPhoto {
   const OutgoingPhoto({required this.bytes, required this.mediaType, required this.base64});
 

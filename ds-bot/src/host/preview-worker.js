@@ -1,12 +1,19 @@
-// Shrinks one photo off the main thread: decoding a camera JPEG takes long enough to
-// stall every Bot's turn if it ran beside them. Pure JS, so it needs nothing built.
+// Shrinks one photo, or turns an animated GIF into a sheet of frames, off the main
+// thread: decoding a camera JPEG or a long GIF takes long enough to stall every Bot's
+// turn if it ran beside them. Pure JS, so it needs nothing built.
 import { parentPort } from 'node:worker_threads'
 import jpeg from 'jpeg-js'
 import { PNG } from 'pngjs'
+import { gifSheet } from './gif-sheet.js'
 
-parentPort?.on('message', ({ id, bytes, mime, edge, quality, always }) => {
+parentPort?.on('message', ({ id, kind, bytes, mime, edge, quality, always }) => {
   try {
-    parentPort.postMessage({ id, data: shrink(Buffer.from(bytes), mime, edge, quality, always) })
+    if (kind === 'gif-sheet') {
+      const sheet = gifSheet(Buffer.from(bytes))
+      parentPort.postMessage(sheet === null ? { id, data: null } : { id, ...sheet })
+    } else {
+      parentPort.postMessage({ id, data: shrink(Buffer.from(bytes), mime, edge, quality, always) })
+    }
   } catch (error) {
     parentPort.postMessage({ id, error: String(error?.message ?? error) })
   }

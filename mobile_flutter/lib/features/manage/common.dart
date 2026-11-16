@@ -8,6 +8,7 @@ import 'package:image_picker/image_picker.dart';
 
 import '../../app/app_state.dart';
 import '../../data/json.dart';
+import '../../data/photos.dart';
 import '../../ui/glass.dart';
 import '../../ui/icons.dart';
 import '../../ui/theme.dart';
@@ -115,9 +116,7 @@ Future<String?> pickPhotoDataUrl() async {
   final file = await ImagePicker().pickImage(source: ImageSource.gallery, maxWidth: 512, maxHeight: 512, imageQuality: 85);
   if (file == null) return null;
   final bytes = await file.readAsBytes();
-  final ext = file.name.split('.').last.toLowerCase();
-  final mime = ext == 'png' ? 'image/png' : (ext == 'webp' ? 'image/webp' : 'image/jpeg');
-  return 'data:$mime;base64,${base64Encode(bytes)}';
+  return 'data:${imageTypeOf(bytes) ?? 'image/jpeg'};base64,${base64Encode(bytes)}';
 }
 
 /// A short label above a block on a details page.
