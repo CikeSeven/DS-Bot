@@ -142,6 +142,7 @@ abstract final class Radii {
   static const bubble = 18.0;
   static const sheet = 24.0;
   static const composer = 22.0;
+  static const floating = 20.0;
   static const pill = 999.0;
 }
 

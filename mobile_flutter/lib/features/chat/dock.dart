@@ -1,6 +1,5 @@
-// Everything above the message box: the group's goal, a failure only the user
-// can fix, computer-use asks, what the Bot is doing (with Stop), the cards that
-// wait for the user, and quick actions.
+// The cards that float above the message box: the group's goal, a failure only
+// the user can fix, computer-use asks and the cards that wait for the user.
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -9,7 +8,6 @@ import '../../app/app_state.dart';
 import '../../app/nav.dart';
 import '../../data/json.dart';
 import '../../data/team_state.dart';
-import '../../ui/avatar.dart';
 import '../../ui/i18n.dart';
 import '../../ui/icons.dart';
 import '../../ui/theme.dart';
@@ -20,6 +18,14 @@ import '../settings/connections_pages.dart';
 import '../settings/providers_page.dart';
 import 'pending_cards.dart';
 import 'view_card.dart';
+
+/// A card floating over the messages: solid enough to read, lifted by a shadow.
+BoxDecoration floatingCard(Palette p, {Color? tint, Color? border}) => BoxDecoration(
+      color: tint == null ? p.card : Color.alphaBlend(tint, p.card),
+      borderRadius: BorderRadius.circular(Radii.floating),
+      border: Border.all(color: border ?? p.line),
+      boxShadow: [BoxShadow(color: Colors.black.withValues(alpha: p.dark ? 0.3 : 0.06), blurRadius: 14, offset: const Offset(0, 4))],
+    );
 
 class _Card {
   const _Card(this.key, this.title, this.icon, this.needs, this.body);
@@ -122,21 +128,17 @@ class _PendingDockState extends State<PendingDock> {
     return ConstrainedBox(
       constraints: BoxConstraints(maxHeight: MediaQuery.sizeOf(context).height * 0.5),
       child: SingleChildScrollView(
-        padding: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
         child: Column(children: [
           for (final card in cards)
             Padding(
-              padding: const EdgeInsets.only(bottom: 6),
+              padding: const EdgeInsets.only(bottom: 8),
               child: AnimatedContainer(
                 duration: const Duration(milliseconds: 240),
-                decoration: BoxDecoration(
-                  color: p.card.withValues(alpha: 0.95),
-                  borderRadius: BorderRadius.circular(Radii.dialog),
-                  border: Border.all(color: card.key == active.key && card.needs ? p.accent.withValues(alpha: 0.5) : p.line),
-                ),
+                decoration: floatingCard(p, border: card.key == active.key && card.needs ? p.accent.withValues(alpha: 0.45) : null),
                 child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
                   InkWell(
-                    borderRadius: BorderRadius.circular(Radii.dialog),
+                    borderRadius: BorderRadius.circular(Radii.floating),
                     onTap: () {
                       HapticFeedback.selectionClick();
                       setState(() => _chosen = card.key == active.key && chosen != null ? null : card.key);
@@ -217,9 +219,9 @@ class _GoalBarState extends State<GoalBar> {
     return GestureDetector(
       onTap: () => setState(() => _open = !_open),
       child: Container(
-        margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
         padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
-        decoration: BoxDecoration(color: p.card.withValues(alpha: 0.95), borderRadius: BorderRadius.circular(Radii.dialog), border: Border.all(color: p.line)),
+        decoration: floatingCard(p),
         child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
           Row(children: [
             Ico(AppIcon.target, size: 16, color: p.accent),
@@ -300,9 +302,9 @@ class BlockedCard extends StatelessWidget {
     final key = const {'MISSING_CREDENTIAL', 'INVALID_CREDENTIAL', 'AUTH'}.contains(code);
     final topUp = (code == 'QUOTA' && providerId == 'deepseek-official') || code == 'ACCOUNT_QUOTA';
     return Container(
-      margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+      margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
       padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(color: Palette.danger.withValues(alpha: 0.08), borderRadius: BorderRadius.circular(Radii.dialog), border: Border.all(color: Palette.danger.withValues(alpha: 0.3))),
+      decoration: floatingCard(p, tint: Palette.danger.withValues(alpha: 0.07), border: Palette.danger.withValues(alpha: 0.28)),
       child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
           const Ico(AppIcon.alert, size: 18, color: Palette.danger),
@@ -340,9 +342,9 @@ class ComputerCards extends StatelessWidget {
     return Column(children: [
       for (final ask in asks)
         Container(
-          margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
           padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(color: p.card.withValues(alpha: 0.95), borderRadius: BorderRadius.circular(Radii.dialog), border: Border.all(color: p.line)),
+          decoration: floatingCard(p),
           child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
             Text(t('Allow {name} to use {app}?', {'name': bot.name, 'app': jStr(ask, 'appName') ?? ''}), style: TypeScale.settingsRow.copyWith(color: p.ink)),
             const SizedBox(height: 10),
@@ -357,9 +359,9 @@ class ComputerCards extends StatelessWidget {
         ),
       if (acting)
         Container(
-          margin: const EdgeInsets.fromLTRB(10, 8, 10, 0),
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 8),
           padding: const EdgeInsets.fromLTRB(14, 6, 6, 6),
-          decoration: BoxDecoration(color: p.card.withValues(alpha: 0.95), borderRadius: BorderRadius.circular(Radii.dialog), border: Border.all(color: p.line)),
+          decoration: floatingCard(p),
           child: Row(children: [
             Ico(AppIcon.monitor, size: 16, color: p.accent),
             const SizedBox(width: 8),
@@ -368,105 +370,5 @@ class ComputerCards extends StatelessWidget {
           ]),
         ),
     ]);
-  }
-}
-
-/// What the Bot (or each group member) is doing, with Stop in reach.
-class WorkLine extends StatefulWidget {
-  const WorkLine({super.key, required this.entries, required this.onStop});
-
-  final List<({Bot? bot, String text, VoidCallback? stop})> entries;
-  final VoidCallback onStop;
-
-  @override
-  State<WorkLine> createState() => _WorkLineState();
-}
-
-class _WorkLineState extends State<WorkLine> with SingleTickerProviderStateMixin {
-  late final AnimationController _shimmer = AnimationController(vsync: this, duration: const Duration(milliseconds: 1600));
-
-  @override
-  void didChangeDependencies() {
-    super.didChangeDependencies();
-    if (MediaQuery.disableAnimationsOf(context)) {
-      _shimmer.stop();
-    } else if (!_shimmer.isAnimating) {
-      _shimmer.repeat();
-    }
-  }
-
-  @override
-  void dispose() {
-    _shimmer.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.p;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 8, 0),
-      child: Column(children: [
-        for (final entry in widget.entries)
-          Row(children: [
-            BotAvatar(bot: entry.bot, size: 22, working: true),
-            const SizedBox(width: 8),
-            Expanded(
-              child: AnimatedBuilder(
-                animation: _shimmer,
-                builder: (context, child) => ShaderMask(
-                  shaderCallback: (rect) => LinearGradient(
-                    colors: [p.ink2, p.ink, p.ink2],
-                    stops: [(_shimmer.value - 0.3).clamp(0, 1), _shimmer.value, (_shimmer.value + 0.3).clamp(0, 1)],
-                  ).createShader(rect),
-                  child: child,
-                ),
-                child: Text(entry.text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TypeScale.small.copyWith(color: Colors.white)),
-              ),
-            ),
-            if (entry.stop != null)
-              TextButton(onPressed: entry.stop, child: Text(t('Stop'), style: TypeScale.smallStrong.copyWith(color: Palette.danger))),
-          ]),
-      ]),
-    );
-  }
-}
-
-/// Quick actions above the message box.
-class QuickChips extends StatelessWidget {
-  const QuickChips({super.key, required this.chips});
-
-  final List<({AppIcon icon, String label, VoidCallback onTap})> chips;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.p;
-    if (chips.isEmpty) return const SizedBox.shrink();
-    return SizedBox(
-      height: 40,
-      child: ListView(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(10, 6, 10, 2),
-        children: [
-          for (final chip in chips)
-            Padding(
-              padding: const EdgeInsets.only(right: 6),
-              child: Pressable(
-                onTap: chip.onTap,
-                haptic: true,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(color: p.card.withValues(alpha: 0.85), borderRadius: BorderRadius.circular(Radii.pill), border: Border.all(color: p.line)),
-                  child: Row(mainAxisSize: MainAxisSize.min, children: [
-                    Ico(chip.icon, size: 15, color: p.ink2),
-                    const SizedBox(width: 6),
-                    Text(chip.label, style: TypeScale.small.copyWith(color: p.ink)),
-                  ]),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
   }
 }
