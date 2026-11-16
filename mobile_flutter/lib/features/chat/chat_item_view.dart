@@ -7,6 +7,7 @@ import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 
+import '../../app/app_state.dart';
 import '../../app/nav.dart';
 import '../../data/chat_items.dart';
 import '../../data/chat_session.dart';
@@ -270,15 +271,44 @@ class ChatItemView extends StatelessWidget {
     );
   }
 
+  /// Whether the computer sends the images a reply shows from its files
+  /// (`image` by path or by presented file).
+  bool _showsFiles(BuildContext context) =>
+      sessionId.isNotEmpty && (context.getInheritedWidgetOfExactType<TeamScope>()?.notifier?.has('shown-images') ?? false);
+
+  /// A run of images in a reply's Markdown: from the web, or files on the computer
+  /// when it can send them. Anything else stays as its alt text.
+  Widget? _markdownImages(BuildContext context, List<MarkdownImage> images) {
+    final files = _showsFiles(context);
+    final refs = <Json>[];
+    for (final image in images) {
+      final src = image.src.trim();
+      if (_web.hasMatch(src)) {
+        refs.add({'url': src});
+      } else if (files && src.isNotEmpty && !_scheme.hasMatch(src)) {
+        refs.add({'path': src});
+      } else {
+        return null;
+      }
+    }
+    return ImageGrid(refs: refs, sessionId: sessionId, natural: true, top: 2);
+  }
+
+  Widget _botText(BuildContext context, String text, Color background) =>
+      MarkdownText(text, background: background, images: (images) => _markdownImages(context, images));
+
   Widget _bot(BuildContext context, Palette p) {
     final texts = bodyTextsOf(item);
     final refs = jMaps(item, 'imageRefs');
-    final files = jMaps(item, 'files');
+    final allFiles = jMaps(item, 'files');
+    final shownFiles = _showsFiles(context) ? allFiles.where((file) => isImageName(jStr(file, 'name'))).toList() : const <Json>[];
+    final files = allFiles.where((file) => !shownFiles.contains(file)).toList();
     final whole = wholeFileOf(item);
-    if (texts.isEmpty && refs.isEmpty && files.isEmpty && whole == null) return const SizedBox.shrink();
+    if (texts.isEmpty && refs.isEmpty && allFiles.isEmpty && whole == null) return const SizedBox.shrink();
     final changes = jMap(item, 'changes');
     final extras = <Widget>[
       if (refs.isNotEmpty) ImageGrid(refs: refs, sessionId: sessionId),
+      if (shownFiles.isNotEmpty) ImageGrid(refs: shownFiles, sessionId: sessionId, natural: true),
       if (changes != null && jInt(changes, 'seq') != null) _ChangesChip(changes: changes),
       for (final file in files) FileChip(file: file, sessionId: sessionId),
       if (whole != null)
@@ -313,7 +343,7 @@ class ChatItemView extends StatelessWidget {
                 for (final (i, text) in texts.indexed)
                   Padding(
                     padding: EdgeInsets.only(top: i == 0 ? 0 : 4),
-                    child: _botBubble(p, MarkdownText(text, background: p.bubble), maxWidth: botMax - 34, extras: i == texts.length - 1 ? extras : const [], wide: hasBlockContent(text)),
+                    child: _botBubble(p, _botText(context, text, p.bubble), maxWidth: botMax - 34, extras: i == texts.length - 1 ? extras : const [], wide: hasBlockContent(text)),
                   ),
                 if (texts.isEmpty) _botBubble(p, const SizedBox.shrink(), maxWidth: botMax - 34, extras: extras),
               ]),
@@ -330,7 +360,7 @@ class ChatItemView extends StatelessWidget {
           padding: const EdgeInsets.symmetric(vertical: 4),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             if (inRoom && jStr(item, 'name') != null) Text(jStr(item, 'name')!, style: TypeScale.caption.copyWith(color: p.ink3)),
-            if (joined.isNotEmpty) MarkdownText(joined, background: p.main),
+            if (joined.isNotEmpty) _botText(context, joined, p.main),
             ...extras,
             if (row.stamp != null) Padding(padding: const EdgeInsets.only(top: 4), child: Text(row.stamp!, style: TypeScale.caption.copyWith(color: p.ink3))),
           ]),
@@ -342,7 +372,7 @@ class ChatItemView extends StatelessWidget {
       child: GestureDetector(
         onLongPress: () => onLongPress(row),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _botBubble(p, joined.isEmpty ? const SizedBox.shrink() : MarkdownText(joined, background: p.bubble), maxWidth: botMax, extras: extras, wide: texts.any(hasBlockContent) || refs.isNotEmpty),
+          _botBubble(p, joined.isEmpty ? const SizedBox.shrink() : _botText(context, joined, p.bubble), maxWidth: botMax, extras: extras, wide: texts.any(hasBlockContent) || refs.isNotEmpty),
           if (row.stamp != null) Padding(padding: const EdgeInsets.only(top: 3, left: 6), child: Text(row.stamp!, style: TypeScale.caption.copyWith(color: p.ink3))),
         ]),
       ),
@@ -366,6 +396,11 @@ Object? _decode(String text) {
     return null;
   }
 }
+
+final _web = RegExp(r'^https?://', caseSensitive: false);
+
+// A URL scheme other than a Windows drive letter: the image is no file to fetch.
+final _scheme = RegExp(r'^(?![A-Za-z]:[\\/])[a-z][a-z\d+.-]*:', caseSensitive: false);
 
 String _platformName(String id) {
   for (final platform in SharedData.instance.imPlatforms) {

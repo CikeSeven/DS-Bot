@@ -576,7 +576,7 @@ class _ShotThumbState extends State<_ShotThumb> {
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
-    _image ??= loadImage(TeamScope.read(context), widget.sessionId, widget.attachmentId);
+    _image ??= loadImage(TeamScope.read(context), widget.sessionId, {'attachmentId': widget.attachmentId});
   }
 
   @override
