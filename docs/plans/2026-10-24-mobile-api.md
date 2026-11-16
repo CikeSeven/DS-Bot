@@ -150,3 +150,14 @@ the existing whole-file response and its 16 MiB compatibility limit.
 - 只认 png、jpg、jpeg、gif、webp，其它回 `bot/invalid`。不存在的文件、DSH 或团队数据目录里的文件回 `bot/not-found`。
 - `preview: true` 和照片一样给长边 512 的 JPEG 预览。不带 `preview` 时，超过 2 MiB 的图片换成长边最多 2048 的 JPEG：手机连接一条消息最多 4 MiB（base64 之后）。缩不了的（大的 GIF、WebP）回 `bot/refused`。
 - 手机上，回复里的 Markdown 图片按原比例画在气泡里，http(s) 的网页图片由手机直接加载；`present` 交付的图片画成图，点开全屏，全屏里能保存原文件；其它交付的文件仍是文件卡片，点卡片就保存。电脑没有 `shown-images` 时手机照旧显示说明文字和文件卡片。
+
+## 撤回消息（2026-11-16）
+
+能力 `recall`。行为见[撤回消息](2026-11-16-message-recall.md)。
+
+- `recall-check`：`{ botId, sessionId, seq, time? }` → `{ files, count, maybe }`。`files` 是这条消息之后 Bot 改过的文件（最多 8 个），`count` 是总数，`maybe` 表示有还没结束或摘要已经不在的轮次写过文件、说不出是哪些。`count` 为 0 且 `maybe` 为假时不用问用户。
+- `recall`：参数同上 → `{ text, images, until }`。`text` 是被撤回的消息原文，放回输入框；`images` 是它带的图片张数（图片不放回）。
+- `sessionId` 是聊天页的 `sessionId`（Bot 的当前分段），`seq`、`time` 是这条用户条目自带的。`time` 不一致回 `bot/stale`：列表里更早分段的条目不会撤回当前分段里同一个 `seq` 的消息。手机只给最后一条分段线（`divider`）之后的用户条目显示撤回。
+- 失败：不是用户自己的消息 `bot/invalid`；更早的分段、已经撤回、已经压缩进上下文摘要 `bot/stale`；本地 Agent CLI 上的 Bot `bot/refused`；同一个聊天正在撤回 `bot/busy`。
+- `chat` 和 `earlier` 在被撤回的消息处多一种条目 `{ kind: 'recalled', seq, turn, time }`，它之后被撤回的条目不再出现。
+- feed 新事件 `recall`：`{ botId, sessionId, seq, until }`，客户端从最新一页重新读这个 Bot 的聊天。
