@@ -168,6 +168,11 @@ class PhoneIdentity {
   }
 }
 
+/// This app speaks link protocol v2 only. Computers paired through a v1 relay
+/// address are reached at the same relay's v2 path.
+String linkV2Address(String server) =>
+    server.endsWith('/v1/link') ? '${server.substring(0, server.length - '/v1/link'.length)}/v2/link' : server;
+
 /// A paired computer, as the pairing code described it.
 class SavedComputer {
   const SavedComputer({
@@ -179,7 +184,7 @@ class SavedComputer {
   });
 
   factory SavedComputer.fromOffer(PairingOffer offer, {int? addedAt}) => SavedComputer(
-        server: offer.server,
+        server: linkV2Address(offer.server),
         hostDeviceId: offer.hostDeviceId,
         hostKey: offer.hostKey,
         name: offer.name,
@@ -215,7 +220,7 @@ class SavedComputer {
     final name = value['name'];
     final addedAt = value['addedAt'];
     return SavedComputer(
-      server: server,
+      server: linkV2Address(server),
       hostDeviceId: hostDeviceId,
       hostKey: hostKey,
       name: name is String ? name : '',
