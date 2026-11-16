@@ -210,3 +210,12 @@ bool sameMessage(Json item, Json sent) {
   final photos = jList(item, 'imageRefs').isNotEmpty ? jList(item, 'imageRefs').length : (jInt(item, 'images') ?? 0);
   return photos == (jInt(sent, 'localImageCount') ?? 0);
 }
+
+/// What the warning before a recall says about the files the Bot changed after
+/// the message (`recall-check`); empty when it changed none, and then nothing asks.
+String recallWarning(Json check, String name) {
+  final count = jInt(check, 'count') ?? 0;
+  if (count == 1) return t('{name} changed a file after this message. Recalling leaves it as it is.', {'name': name});
+  if (count > 1) return t('{name} changed {count} files after this message. Recalling leaves them as they are.', {'name': name, 'count': count});
+  return jBool(check, 'maybe') == true ? t('{name} may have changed files after this message. Recalling leaves them as they are.', {'name': name}) : '';
+}

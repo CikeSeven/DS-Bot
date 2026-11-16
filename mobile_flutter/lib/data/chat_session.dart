@@ -243,6 +243,19 @@ class ChatSession extends ChangeNotifier {
     }
   }
 
+  /// After a recall the rows from the recalled message on are gone, on any page:
+  /// read the chat again from the newest page, and drop the reply being written.
+  Future<void> reload() async {
+    if (_disposed) return;
+    _older = [];
+    _cursor = null;
+    _cursorSet = false;
+    _attempts.clear();
+    streaming = '';
+    _changed();
+    await refresh();
+  }
+
   void _keep() {
     final page = _page;
     if (page != null) _pages.keep(chatKey, chatKey, CachedChat(page: page, older: _older, cursor: _cursor));
@@ -277,6 +290,8 @@ class ChatSession extends ChangeNotifier {
     switch (event.event) {
       case 'room':
         if (room && jStr(data, 'roomId') == id) unawaited(refresh());
+      case 'recall':
+        if (!room && jStr(data, 'sessionId') == sessionId) unawaited(reload());
       case 'message':
         if (jStr(data, 'sessionId') != sessionId) return;
         final item = jMap(data, 'item');
