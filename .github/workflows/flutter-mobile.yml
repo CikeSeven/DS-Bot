@@ -1,6 +1,6 @@
 # The Flutter phone app (mobile_flutter/): analyze, test, and an APK signed with
-# this fork's own upload key. It runs beside the Expo app's jobs and changes none
-# of them. Secrets (all optional for a dry run, required for a release):
+# this fork's own upload key. Releases build their APK in release.yml. Secrets
+# (optional here; without them the APK is signed with the debug key):
 #   FLUTTER_KEYSTORE_BASE64, FLUTTER_KEYSTORE_PASSWORD, FLUTTER_KEY_ALIAS
 name: Flutter phone app
 
@@ -11,11 +11,9 @@ on:
     branches: [main]
     paths: ['mobile_flutter/**', 'link/**', 'ds-bot/src/client/**', 'ds-bot/package.json', '.github/workflows/flutter-mobile.yml']
   workflow_dispatch:
-  release:
-    types: [published]
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   app:
@@ -40,9 +38,13 @@ jobs:
           channel: stable
           flutter-version: 3.47.5
           cache: true
-      # The link tests run the Dart client against the real Relay Server in ../link.
-      - name: Install the phone link's packages
-        run: npm ci --no-fund --no-audit --prefix ../link
+      # The phone link is Rust; the Flutter build compiles it for each Android ABI.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi, x86_64-linux-android
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile_flutter/rust
       - name: Shared assets are in step with the desktop
         run: |
           node tool/sync_shared.mjs
@@ -61,9 +63,6 @@ jobs:
           if [ -n "$KEYSTORE_BASE64" ]; then
             printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
             export DSBOT_ANDROID_KEYSTORE="$RUNNER_TEMP/upload.jks" DSBOT_ANDROID_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" DSBOT_ANDROID_KEY_ALIAS="$KEY_ALIAS"
-          elif [ "$GITHUB_EVENT_NAME" = release ]; then
-            echo "::error::The FLUTTER_KEYSTORE_BASE64 secret is missing, so the APK cannot be signed for release."
-            exit 1
           else
             echo "::warning::No upload key: this build signs the APK with the debug key."
           fi
@@ -80,20 +79,10 @@ jobs:
           for scheme in 'v1 scheme (JAR signing): true' 'v2 scheme (APK Signature Scheme v2): true' 'v3 scheme (APK Signature Scheme v3): true'; do
             echo "$certs" | grep -Fq "Verified using $scheme" || { echo "::error::The APK is missing signature $scheme."; exit 1; }
           done
-          if [ "$GITHUB_EVENT_NAME" = release ] && echo "$certs" | grep -q 'CN=Android Debug'; then
-            echo "::error::The APK is signed with the debug key."
-            exit 1
-          fi
       - name: Keep the APK
-        if: github.event_name != 'release'
         uses: actions/upload-artifact@v4
         with:
           name: DS-Bot-android-flutter
           path: mobile_flutter/dist/*.apk
           retention-days: 7
           compression-level: 0
-      - name: Attach the APK to the release
-        if: github.event_name == 'release'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "${{ github.event.release.tag_name }}" dist/DS-Bot-*-android-flutter.apk --clobber

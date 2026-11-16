@@ -81,9 +81,6 @@ jobs:
             exit 1
           fi
 
-      # The tests rebuild link.js from ../link and run its Relay Server, which have their own packages.
-      - name: Install the phone link's packages
-        run: npm ci --no-fund --no-audit --prefix ../link
       - run: npm ci --no-fund --no-audit
       - run: npm run harness
       - run: npm test
@@ -243,10 +240,10 @@ jobs:
           legacy="$(node scripts/legacy-release-assets.mjs "dist-pack/DS-Bot-$version-linux-amd64.deb")"
           gh release upload "$TAG" "dist-pack/DS-Bot-$version-linux-x86_64.AppImage" "dist-pack/DS-Bot-$version-linux-amd64.deb" "$legacy" dist-pack/latest-linux.yml --clobber
 
-  # The phone app's APK, signed with the upload key in the ANDROID_KEYSTORE_BASE64,
-  # ANDROID_KEYSTORE_PASSWORD and ANDROID_KEY_ALIAS secrets. Every later APK must carry
-  # the same key, or Android refuses it as an update. A dry run without the secrets
-  # signs with the debug key, and that APK is for checks only.
+  # The phone app's APK (mobile_flutter/), signed with the upload key in the
+  # FLUTTER_KEYSTORE_BASE64, FLUTTER_KEYSTORE_PASSWORD and FLUTTER_KEY_ALIAS secrets.
+  # Every later APK must carry the same key, or Android refuses it as an update. A dry
+  # run without the secrets signs with the debug key, and that APK is for checks only.
   app-android:
     name: Phone app (Android)
     needs: publish
@@ -255,7 +252,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: mobile
+        working-directory: mobile_flutter
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -265,31 +262,40 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-      - run: npm ci --no-fund --no-audit --prefix ../link
-      - run: npm ci --no-fund --no-audit
-      - run: npm run typecheck
-      - run: npm test
-      - run: npx expo prebuild --platform android --no-install
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          flutter-version: 3.47.5
+          cache: true
+      # The phone link is Rust; the Flutter build compiles it for each Android ABI.
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android, armv7-linux-androideabi
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: mobile_flutter/rust
+      - run: flutter pub get
+      - run: flutter test --exclude-tags screenshot
       - name: Build the APK
         env:
-          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          KEYSTORE_BASE64: ${{ secrets.FLUTTER_KEYSTORE_BASE64 }}
+          KEYSTORE_PASSWORD: ${{ secrets.FLUTTER_KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.FLUTTER_KEY_ALIAS }}
         run: |
           if [ -n "$KEYSTORE_BASE64" ]; then
             printf '%s' "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/upload.jks"
             export DSBOT_ANDROID_KEYSTORE="$RUNNER_TEMP/upload.jks" DSBOT_ANDROID_KEYSTORE_PASSWORD="$KEYSTORE_PASSWORD" DSBOT_ANDROID_KEY_ALIAS="$KEY_ALIAS"
           elif [ "$GITHUB_EVENT_NAME" = release ]; then
-            echo "::error::The ANDROID_KEYSTORE_BASE64 secret is missing, so the APK cannot be signed for release."
+            echo "::error::The FLUTTER_KEYSTORE_BASE64 secret is missing, so the APK cannot be signed for release."
             exit 1
           else
             echo "::warning::No upload key: this dry run signs the APK with the debug key."
           fi
-          (cd android && ./gradlew assembleRelease --no-daemon --console=plain -PreactNativeArchitectures=arm64-v8a,armeabi-v7a)
+          flutter build apk --release --target-platform android-arm,android-arm64
           rm -f "$RUNNER_TEMP/upload.jks"
           version="$(node -p "require('../ds-bot/package.json').version")"
           mkdir -p dist
-          cp android/app/build/outputs/apk/release/app-release.apk "dist/DS-Bot-$version-android.apk"
+          cp build/app/outputs/flutter-apk/app-release.apk "dist/DS-Bot-$version-android.apk"
       - name: Check the signature
         run: |
           if unzip -l dist/DS-Bot-*-android.apk | grep -Eq 'lib/(x86|x86_64)/'; then
@@ -318,7 +324,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: DS-Bot-android
-          path: mobile/dist/DS-Bot-*-android.apk
+          path: mobile_flutter/dist/DS-Bot-*-android.apk
           retention-days: 7
           if-no-files-found: error
           compression-level: 0

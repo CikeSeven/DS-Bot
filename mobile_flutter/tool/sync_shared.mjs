@@ -1,7 +1,7 @@
 // Copies what the phone shares with the desktop UI into JSON assets, so the
 // Flutter app follows the same themes, inks, characters and Chinese copy:
 //   assets/shared/shared.json  themes, inks, character table, IM platforms
-//   assets/i18n/zh.json        desktop DICTIONARY.zh + host error patterns + mobile-only copy
+//   assets/i18n/zh.json        desktop DICTIONARY.zh + host error patterns + the phone's own copy (tool/phone_zh.mjs)
 //   test/fixtures/character_cases.json  default looks for a set of ids, to check the Dart port
 // Run from mobile_flutter/ after the desktop files change: node tool/sync_shared.mjs
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -21,6 +21,7 @@ import {
 } from '../../ds-bot/src/client/characters.js'
 import { DICTIONARY } from '../../ds-bot/src/client/i18n.js'
 import { IM_PLATFORMS } from '../../ds-bot/src/shared/im-platforms.js'
+import { MOBILE_SENSE, MOBILE_ZH } from './phone_zh.mjs'
 
 const root = new URL('../', import.meta.url)
 const write = (path, value) => writeFileSync(new URL(path, root), JSON.stringify(value) + '\n')
@@ -78,11 +79,7 @@ write('assets/shared/shared.json', {
 })
 
 const hostErrors = literal('../ds-bot/src/client/i18n.js', 'HOST_ERRORS').map(([pattern, template]) => [pattern.source, template])
-const mobileZh = literal('../mobile/src/ui/i18n.ts', 'MOBILE_ZH')
-// Words the desktop uses in another sense; the phone's own meaning wins (mobile/src/ui/i18n.ts MOBILE_SENSE).
-const mobileSource = readFileSync(new URL('../mobile/src/ui/i18n.ts', root), 'utf8')
-const mobileSense = JSON.parse(mobileSource.match(/const MOBILE_SENSE = new Set\((\[[^\]]*\])\)/)[1].replaceAll("'", '"'))
-write('assets/i18n/zh.json', { desktop: DICTIONARY.zh, mobile: mobileZh, mobileSense, hostErrors })
+write('assets/i18n/zh.json', { desktop: DICTIONARY.zh, mobile: MOBILE_ZH, mobileSense: MOBILE_SENSE, hostErrors })
 
 const ids = ['b-chief', 'b-writer', 'b-coder', 'b-researcher', 'b-designer', 'bot-1', 'x', '', '漢字', 'a'.repeat(40), 'b-3kq9z1', 'r-launch']
 write('test/fixtures/character_cases.json', ids.map(id => ({
@@ -97,7 +94,7 @@ console.log('synced', {
   themes: Object.keys(allThemes()).length,
   characters: Object.keys(characters).length,
   zh: Object.keys(DICTIONARY.zh).length,
-  mobileZh: Object.keys(mobileZh).length,
+  mobileZh: Object.keys(MOBILE_ZH).length,
   hostErrors: hostErrors.length,
-  mobileSense,
+  mobileSense: MOBILE_SENSE,
 })

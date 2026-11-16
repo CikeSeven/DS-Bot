@@ -112,40 +112,34 @@ Apache License, Version 2.0, Copyright (c) Microsoft Corporation
 DSH Remote (https://github.com/liguobao/deepseek-harness-remote)
 MIT License, Copyright (c) 2026 DSH Remote contributors
 
-  The phone link code in link/ adapts code from commit 4d888ad of DSH Remote.
-  DS Bot changed the names, the Noise prologue label, the fragment marker, the
-  hello and the pairing, so the protocol is DS Bot's own and does not talk to
-  DSH Remote.
-  - link/src/noise.ts adapts packages/crypto/src/noise.ts (the Noise
-    IK session and the remote-key check).
-  - link/src/keys.ts copies the key pair, fingerprint and Base64URL
+  The first phone link (protocol v1, now removed) adapted code from commit
+  4d888ad of DSH Remote. Protocol v2 in link/ is written again in Rust, with
+  its own frames, resumable links and reliable channel, and does not talk to
+  DSH Remote. It keeps these parts of v1 that came from DSH Remote:
+  - link/crates/core/src/keys.rs: the key pair, fingerprint and Base64URL
     functions of packages/crypto/src/index.ts.
-  - link/src/frames.ts adapts packages/protocol/src/index.ts: the
-    control frame and message envelopes, the frame size limits, and
-    SecureMessageCodec. It checks frames by hand instead of with zod.
-  - link/src/transport.ts copies packages/webrtc/src/transport.ts and
-    packages/webrtc/src/websocket-backpressure.ts.
-  - link/src/relay-transport.ts adapts RelayTransport in
-    packages/webrtc/src/index.ts.
-  - link/src/secure-transport.ts adapts
-    apps/android/src/services/secure-transport.ts.
-  - link/src/rpc-client.ts adapts RemoteClientCore in
-    packages/client-core/src/index.ts.
-  - link/server/gateway.ts adapts apps/server/src/gateway.ts (the hello
-    check, the link stages, the Relay counters, the heartbeat and the rate
-    limits). It drops accounts and WebRTC signaling.
-  - link/src/host.ts follows the flow of HostServerConnection in
-    packages/plugin/src/server-connection.ts (reconnect, connect.incoming,
-    the responder handshake, Relay sends), written again for DS Bot.
-  - mobile/src/polyfills.ts copies apps/android/src/polyfills.ts.
-  - mobile_flutter/lib/link/ is a Dart port of the link/src files above
-    (keys, noise, frames, transport, relay-transport, secure-transport,
-    rpc-client), so it carries the same DSH Remote origin. Its Noise core is
-    written out from the Noise Protocol Framework specification instead of
-    the clatterjs package link/src uses.
+  - link/crates/core/src/noise.rs: the Noise IK session and the remote-key
+    check of packages/crypto/src/noise.ts.
+  - link/crates/core/src/message.rs and frag.rs: the message envelope and
+    the fragment layout of SecureMessageCodec in
+    packages/protocol/src/index.ts.
+  - link/crates/relay: the hello check, the device store, the heartbeat and
+    the rate limits of apps/server/src/gateway.ts.
+  - link/crates/host: the flow of HostServerConnection in
+    packages/plugin/src/server-connection.ts (incoming links and the
+    responder handshake).
 
   Full license text: the same MIT terms as printed under DeepSeek Harness
   above, with the copyright line of DSH Remote.
+
+Cargokit (https://github.com/irondash/cargokit)
+MIT License or Apache License, Version 2.0, Copyright 2022 Matej Knopp
+
+  - mobile_flutter/rust_builder/cargokit/ is Cargokit as flutter_rust_bridge
+    2.13.0 (https://github.com/fzyzcjy/flutter_rust_bridge, MIT) ships it, and
+    the rest of mobile_flutter/rust_builder/ is that tool's plugin template:
+    they build the phone link's Rust library into the Flutter app. The full
+    license texts are in mobile_flutter/rust_builder/cargokit/LICENSE.
 
 Deep View (https://github.com/Fei2411/deep-view)
 Apache License, Version 2.0, Copyright 2026 Fei2411
@@ -224,21 +218,30 @@ runs in; they are not bundled. The bundled ds-bot/office.js includes
 @xmldom/xmldom (https://github.com/xmldom/xmldom, MIT License, Copyright (c)
 jindw and contributors) from npm. esbuild is a build tool only. The plugin's
 client.js bundles qrcode-generator from npm (MIT, Copyright (c) 2009 Kazuhiko
-Arase), and its link.js bundles the phone link from link/ with the packages
-it uses, listed below. The desktop app
+Arase), and its link.js and link.wasm are built from the Rust phone link in
+link/, listed below. The desktop app
 in app/ installs the pinned @deepseek-ai/* packages, Electron and pnpm from
 npm; they keep their own licenses. The build of its window (app/ui) bundles,
 from npm, React and React DOM (MIT, Copyright (c) Meta Platforms, Inc. and
 affiliates), and react-markdown and remark-gfm with the packages they use
 (MIT, most of them Copyright (c) Titus Wormer; @ungap/structured-clone is ISC,
-Copyright (c) Andrea Giammarchi). Vite is a build tool only. The mobile app in
-mobile/ bundles, from npm, Expo and React Native (MIT, Copyright (c) 650
-Industries, Inc. and Meta Platforms, Inc. and affiliates). The phone link in
-link/, which the mobile app bundles and the Relay Server runs, uses from npm
-@noble/ciphers, @noble/curves and @noble/hashes (MIT, Copyright (c) Paul
-Miller), @lukeburns/clatterjs (MIT, Copyright (c) 2025 Joni Lepistö) and, in
-the Server only, ws (MIT, Copyright (c) 2011 Einar Otto Stangvik, (c) 2013
-Arnout Kazemier and contributors, (c) 2016 Luigi Pinca and contributors).
+Copyright (c) Andrea Giammarchi). Vite is a build tool only. The phone link in
+link/ is Rust; ds-bot's link.wasm, the Relay Server and the phone app's
+library compile in these crates from crates.io, each under its own license:
+snow (Apache-2.0 OR MIT); x25519-dalek, curve25519-dalek and subtle
+(BSD-3-Clause, Copyright (c) Isis Agora Lovecruft and Henry de Valence); the
+RustCrypto crates chacha20poly1305, chacha20, poly1305, sha2, digest, aead,
+cipher and their helpers (Apache-2.0 OR MIT); serde, serde_json, base64,
+getrandom, url, idna and percent-encoding (Apache-2.0 OR MIT); and the ICU4X
+crates that idna uses (Unicode-3.0). link.wasm adds wasm-bindgen and js-sys
+(Apache-2.0 OR MIT). The Relay Server adds tokio, axum, hyper, tower,
+tokio-tungstenite and tracing (MIT) and tungstenite (Apache-2.0 OR MIT). The
+phone app's library adds flutter_rust_bridge (MIT) with allo-isolate
+(Apache-2.0), tokio and tokio-tungstenite (MIT), tungstenite and
+tokio-rustls (Apache-2.0 OR MIT), rustls (Apache-2.0 OR ISC OR MIT),
+rustls-webpki and untrusted (ISC), ring (Apache-2.0 AND ISC) and
+webpki-roots (CDLA-Permissive-2.0, Mozilla's root certificates). The full
+list of each build is in link/Cargo.lock and mobile_flutter/rust/Cargo.lock.
 
 ==============================================================================
 Projects that gave us ideas (no code copied)

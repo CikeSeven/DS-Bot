@@ -63,6 +63,8 @@ The full workflow is in [CONTRIBUTING.md](CONTRIBUTING.md#how-we-work). The part
 - `ds-bot/web-search.js`: the `auto` web-search provider, independent of the Bot team code.
 - `ds-bot/test/`: unit tests and fixtures. `ds-bot/dev/`: the DSH packages for the tests (`harness/`), mock model, test bench, smoke test, character generator, Desktop scripts for Linux.
 - `app/`: the desktop app (Electron main process and window, first-run setup and import, installer and updates).
+- `link/`: the phone link, protocol v2 in Rust (`docs/plans/2026-11-16-link-v2.md`): the shared core, the Relay Server, the phone's session and the computer's end. `ds-bot/link.js` and `ds-bot/link.wasm` are built from it by `npm run build` (needs Rust); like `client.js`, never edit them by hand. Test it with `cargo test --workspace` in `link/`.
+- `mobile_flutter/`: the Flutter phone app; its Rust bridge to the link is `mobile_flutter/rust/`.
 
 ## Style
 
