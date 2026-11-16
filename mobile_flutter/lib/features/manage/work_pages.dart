@@ -8,6 +8,7 @@ import 'package:flutter_timezone/flutter_timezone.dart';
 
 import '../../app/app_state.dart';
 import '../../app/nav.dart';
+import '../../data/chat_items.dart';
 import '../../data/chat_session.dart';
 import '../../data/json.dart';
 import '../../ui/avatar.dart';
@@ -88,7 +89,7 @@ class _PartPage extends StatelessWidget {
           },
           follow: false,
           builder: (context, value, _) {
-            final items = jMaps(value, 'items');
+            final items = groupActs(jMaps(value, 'items'));
             if (team == null) return const SizedBox.shrink();
             final width = MediaQuery.sizeOf(context).width - 24;
             return Padding(
@@ -105,6 +106,7 @@ class _PartPage extends StatelessWidget {
                       flat: false,
                       botMax: width * 0.93,
                       userMax: width * 0.86,
+                      botId: botId,
                       onLongPress: (_) {},
                     ),
                   ),

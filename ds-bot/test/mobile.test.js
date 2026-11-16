@@ -594,6 +594,76 @@ test('a presented file rides on the closing Bot row so the phone can save it', a
   assert.deepEqual(row.files, [{ name: 'quarterly.pdf', sessionId: 's-presented', seq: 13, index: 0 }])
 })
 
+const toolCall = (seq, callId, name, args) => ({ seq, time: seq, type: 'tool/call', data: { turn: 1, callId, name, arguments: JSON.stringify(args) } })
+const toolResult = (seq, callId, content, isError = false) => ({ seq, time: seq, type: 'tool/result', data: { turn: 1, message: { role: 'tool', toolCallId: callId, isError, content: typeof content === 'string' ? [{ type: 'text', text: content }] : content } } })
+
+test('chat pages carry the team actions the desktop chat draws, with their names resolved', async (t) => {
+  const { call, history, stop } = start()
+  t.after(stop)
+  const { chief, writer, room } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  history[sessionId] = [
+    { seq: 1, type: 'turn/start', data: { turn: 1 } },
+    user(2, 'Set up the launch'),
+    { seq: 3, time: 3, type: 'assistant/message', data: { turn: 1, message: { content: [{ type: 'text', text: 'On it.' }] } } },
+    toolCall(4, 'c-msg', 'message_bot', { to: 'Writer', text: 'Draft the post' }),
+    toolResult(5, 'c-msg', 'Sent'),
+    toolCall(6, 'c-read', 'read_group_chat', { group: 'Launch' }),
+    toolResult(7, 'c-read', 'The last messages'),
+    toolCall(8, 'c-mem', 'remember', { text: 'Launch on Friday' }),
+    toolResult(9, 'c-mem', 'Saved to your memory'),
+    toolCall(10, 'c-bash', 'bash', { command: 'ls' }),
+    toolResult(11, 'c-bash', 'a.txt'),
+    toolCall(12, 'c-new', 'create_bot', { name: 'Nobody' }),
+    { seq: 13, type: 'tool/ptc-dispatch', time: 13, data: { parentCallId: 'c-code', subCallId: 'c-code:ptc:1', name: 'stop_bot', arguments: { bot: 'Writer' }, isError: false, content: [{ type: 'text', text: 'Stopped' }] } },
+  ]
+  const page = (await call('chat', { botId: chief })).value
+  const acts = page.items.filter(item => item.kind === 'act')
+  assert.deepEqual(acts.map(item => item.act), ['message', 'read-group', 'memory', 'stop'])
+  assert.deepEqual([acts[0].bot, acts[0].from, acts[0].state, acts[0].seq], [{ id: writer.id, name: 'Writer' }, chief, 'done', 4])
+  assert.deepEqual(acts[1].room, { id: room.id, name: 'Launch' })
+  assert.deepEqual([acts[2].whose, acts[2].open], ['self', { botId: chief }])
+  assert.deepEqual(acts[3].bot, { id: writer.id, name: 'Writer' })
+  // An action sits where its call is, after the words of the step that made it.
+  assert.ok(page.items.indexOf(acts[0]) > page.items.findIndex(item => item.kind === 'bot'))
+})
+
+test('the feed shows a team action from its call and settles it from the result alone', async (t) => {
+  const { call, rt, stop } = start()
+  t.after(stop)
+  const { chief, writer } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const [sending] = rt.displayItems(sessionId, [toolCall(20, 'c-ask', 'message_bot', { to: 'Writer' })])
+  assert.deepEqual([sending.kind, sending.act, sending.state], ['act', 'message', 'running'])
+  assert.deepEqual(rt.displayItems(sessionId, [toolCall(21, 'c-made', 'create_bot', { name: 'Writer' })]), [])
+  const [made] = rt.displayItems(sessionId, [toolResult(22, 'c-made', 'Created Writer')])
+  assert.deepEqual([made.act, made.seq, made.bot], ['create-bot', 21, { id: writer.id, name: 'Writer' }])
+  // A page that cut a call off from its result does not guess.
+  assert.deepEqual(rt.displayItems(sessionId, [toolResult(23, 'c-made', 'Created Writer'), user(24, 'next')]).map(item => item.kind), ['user'])
+})
+
+test('image returns the screenshot a computer step answered with', async (t) => {
+  const { ctx, call, history, stop } = start()
+  t.after(stop)
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const shot = await ctx.get('attachments').saveImage({ data: Buffer.from('shot bytes'), mediaType: 'image/png', width: 4, height: 4 })
+  history[sessionId] = [
+    { seq: 1, type: 'turn/start', data: { turn: 1 } },
+    toolCall(2, 'c-shot', 'cua', { method: 'screenshot' }),
+    toolResult(3, 'c-shot', [{ type: 'text', text: 'ok' }, { type: 'image', attachment: shot }]),
+  ]
+  const step = (await call('chat', { botId: chief })).value.items.find(item => item.act === 'computer')
+  assert.deepEqual([step.method, step.shot], ['screenshot', { attachmentId: shot.attachmentId, mime: 'image/png' }])
+  const image = (await call('image', { sessionId, attachmentId: shot.attachmentId })).value
+  assert.equal(Buffer.from(image.data, 'base64').toString(), 'shot bytes')
+  // A screenshot stored as a file is read as one.
+  const file = await ctx.get('attachments').saveFile({ data: Buffer.from('file shot'), name: 'shot.png' })
+  history[sessionId].push(toolCall(4, 'c-file', 'cua', { method: 'screenshot' }), toolResult(5, 'c-file', [{ type: 'file', attachment: file }]))
+  const stored = (await call('image', { sessionId, attachmentId: file.attachmentId })).value
+  assert.equal(Buffer.from(stored.data, 'base64').toString(), 'file shot')
+})
+
 test('file-download resolves presented files in active and archived group member sessions', async (t) => {
   const { call, history, rt, stop } = start()
   t.after(stop)
