@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { existsSync } from 'node:fs'
 import { test } from 'node:test'
-import { bundleLink } from '../scripts/build-link.mjs'
+import { builtHash, sourceHash } from '../scripts/build-link.mjs'
 
-test('link.js is the build of ../link/src', async () => {
-  assert.equal(await bundleLink(), readFileSync(new URL('../link.js', import.meta.url), 'utf8'), 'link.js is stale: run `npm run build` and commit it')
+test('link.js and link.wasm are the build of ../link', () => {
+  assert.equal(builtHash(), sourceHash(), 'link.js is stale: run `npm run build` (it needs Rust) and commit link.js and link.wasm')
+  assert.ok(existsSync(new URL('../link.wasm', import.meta.url)), 'link.wasm is missing: run `npm run build`')
 })

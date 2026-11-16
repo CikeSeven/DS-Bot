@@ -12,6 +12,8 @@ import { DeviceRegistry, HostLink, LINK_PATH, deviceIdFor, generateKeyPair, pair
 const FILE = 'phone.json'
 const SERVER = /^wss?:\/\/[^\s/?#@]+(\/[^\s?#]*)?$/i
 export const DEFAULT_SERVER = `wss://bot.sisct.xyz${LINK_PATH}`
+// The DS Bot relay's address before protocol v2; saved, it means the default.
+const OLD_DEFAULT_SERVER = 'wss://bot.sisct.xyz/v1/link'
 
 const invalid = message => Object.assign(new Error(message), { code: 'bot/invalid' })
 
@@ -30,6 +32,7 @@ export function install(rt) {
     if (data !== undefined) return data
     try { data = JSON.parse(readFileSync(path, 'utf8')) } catch { data = {} }
     if (!Array.isArray(data.devices)) data.devices = []
+    if (data.server === OLD_DEFAULT_SERVER) data.server = ''
     registry = new DeviceRegistry(data.devices, (devices) => { data.devices = devices; write() })
     return data
   }
@@ -94,8 +97,9 @@ export function install(rt) {
       admits: (deviceId, key) => registry.admits(deviceId, key),
       authorize: (deviceId, key, hello) => registry.authorize(deviceId, key, hello),
       handle: (method, params, request) => method === 'bot' ? callBot(params, request.signal) : Promise.reject(Object.assign(new Error(`Unknown method ${method}`), { code: 'METHOD_NOT_FOUND' })),
-      // Feed events ride the link instead of SSE, but only while a phone is
-      // actually ready to hear them — no tunnel, no feed work on the host.
+      // Feed events ride the link instead of SSE, but only while a phone has a
+      // link — no link, no feed work on the host. A phone away for a moment keeps
+      // its link, and the events wait in it until the phone is back.
       onReadyCount: count => {
         if (count > 0 && feedUntap === null) {
           const running = link

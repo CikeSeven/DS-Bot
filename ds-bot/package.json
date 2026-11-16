@@ -38,6 +38,7 @@
     "src/office/",
     "client.js",
     "link.js",
+    "link.wasm",
     "office.js",
     "web-search.js",
     "cordis.patch.yml",
