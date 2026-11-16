@@ -482,3 +482,51 @@ test('a live Bot Session gets its team tools back after a disable and re-enable'
   assert.ok(hasShowView(second, 'a'), 'the scoped team tools are back')
   assert.ok(denied(second, 'a'), 'the blocking question tool is denied again')
 })
+
+// Scoping or unscoping one Session fires a tools/change for every tool it registers,
+// restricts or disposes. Each pass used to list the tools of every live Agent, so a
+// Bot create or delete stalled the host for seconds once many Sessions were live.
+test('a burst of tool changes is answered once, and connector masks still apply', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  await host.agentCreated('b')
+  rt.connectorOffFor = botId => (botId === 'a' ? ['mcp__notion__'] : [])
+  const listed = []
+  const schemas = host.ctx.tools.schemas
+  host.ctx.tools.schemas = (agent) => {
+    listed.push(agent?.id)
+    return [...schemas(agent), { name: 'mcp__notion__search' }]
+  }
+  const settled = () => new Promise(resolve => setImmediate(resolve))
+  const notionDenied = id => host.restricted.some(entry => entry.sessionId === id && entry.deny.includes('mcp__notion__search'))
+
+  host.ctx.emit('tools/change')
+  await settled()
+  const once = listed.splice(0).sort()
+  assert.ok(once.includes('a'), 'the Bot with a connector off is checked')
+  for (let i = 0; i < 30; i += 1) host.ctx.emit('tools/change')
+  await settled()
+  assert.deepEqual(listed.sort(), once)
+  assert.ok(notionDenied('a'))
+  assert.equal(notionDenied('b'), false)
+
+  // Switched back on, the mask is lifted even though nothing is denied any more.
+  rt.connectorOffFor = () => []
+  rt.reapplyToolMasks()
+  assert.equal(notionDenied('a'), false)
+})
+
+test('connector masks list no tools while no connector is switched off', async (t) => {
+  const host = start()
+  t.after(host.stop)
+  await host.call('state', {})
+  await host.agentCreated('a')
+  await host.agentCreated('b')
+  let listed = 0
+  const schemas = host.ctx.tools.schemas
+  host.ctx.tools.schemas = (agent) => { listed += 1; return schemas(agent) }
+  rt.reapplyToolMasks()
+  assert.equal(listed, 0)
+})

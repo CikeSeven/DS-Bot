@@ -1093,6 +1093,9 @@ export function install(rt) {
     if (typeof agent.ctx?.tools?.restrict !== 'function' || typeof ctx.tools?.schemas !== 'function') return
     const botId = rt.selfOf(agent.session?.id)
     const prefixes = rt.connectorOffFor?.(botId) ?? []
+    // Listing the served tools is the costly step, and with nothing denied now or
+    // before, the mask cannot change.
+    if (prefixes.length === 0 && (held.connectorDenied?.size ?? 0) === 0) return
     const served = new Set(ctx.tools.schemas(agent).map(schema => schema.name))
     const deny = [...served].filter(name => prefixes.some(prefix => name.startsWith(prefix)))
     const before = held.connectorDenied ?? new Set()
@@ -1168,7 +1171,19 @@ export function install(rt) {
     }
     maskConnectorTools(agent, held)
   }
-  ctx.on('tools/change', () => reapplyToolMasks())
+  // Every scoped register, restrict and disposal is one tools/change, so scoping or
+  // unscoping one Session fires dozens in a row, and each pass lists the tools of
+  // every scoped Agent: the host stalled for seconds on a Bot create or delete.
+  // A burst is answered once, after it.
+  let masksQueued = false
+  ctx.on('tools/change', () => {
+    if (masksQueued) return
+    masksQueued = true
+    queueMicrotask(() => {
+      masksQueued = false
+      reapplyToolMasks()
+    })
+  })
   // A new Bot, part, or group Session gets its Agent before ds-bot records it, so the
   // recording path resolves it again once the session is known as a Bot's; meanwhile
   // the guard refuses the question and delegation tools in any Bot Session, and a
