@@ -1,6 +1,6 @@
 // One row of a chat, per display item kind (parts.js displayItems, mobile.js
 // roomItems): bubbles, group posts with the member's name and color, round
-// events, folded tool steps, settled cards and answers.
+// events, settled cards and answers. Tool steps are not shown.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:typed_data';
@@ -36,8 +36,6 @@ class ChatItemView extends StatelessWidget {
     required this.onLongPress,
     this.onRetry,
     this.onDiscard,
-    this.onSteps,
-    this.onThinking,
     this.admin,
   });
 
@@ -51,10 +49,6 @@ class ChatItemView extends StatelessWidget {
   final void Function(ChatRow row) onLongPress;
   final void Function(String localId)? onRetry;
   final void Function(String localId)? onDiscard;
-  final void Function(Json item)? onSteps;
-
-  /// Opens a turn's thinking; set when the computer offers `thinking-text`.
-  final void Function(Json item)? onThinking;
   final String? admin;
 
   Json get item => row.item;
@@ -63,8 +57,6 @@ class ChatItemView extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = context.p;
     switch (row.kind) {
-      case 'steps':
-        return _Steps(item: item, onTap: onSteps, onThinking: onThinking);
       case 'divider':
         final time = jInt(item, 'time');
         return Padding(
@@ -480,94 +472,6 @@ class _Settled extends StatelessWidget {
         if (check) Ico(AppIcon.check, size: 16, color: p.ink2),
       ]),
     ]);
-  }
-}
-
-/// The folded tool calls of one turn: "Used N tools · thought for Ns".
-class _Steps extends StatefulWidget {
-  const _Steps({required this.item, this.onTap, this.onThinking});
-
-  final Json item;
-  final void Function(Json item)? onTap;
-  final void Function(Json item)? onThinking;
-
-  @override
-  State<_Steps> createState() => _StepsState();
-}
-
-class _StepsState extends State<_Steps> {
-  bool _open = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final p = context.p;
-    final tools = jMaps(widget.item, 'tools');
-    final ms = jInt(widget.item, 'ms');
-    final failed = tools.where((tool) => jBool(tool, 'ok') == false).length;
-    final summary = [
-      if (tools.isNotEmpty) t('Used {count} tools', {'count': tools.length}),
-      if (ms != null && ms > 0) t('thought for {seconds}s', {'seconds': (ms / 1000).round()}),
-    ].join(' · ');
-    if (summary.isEmpty) return const SizedBox.shrink();
-    return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 2),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        InkWell(
-          borderRadius: BorderRadius.circular(Radii.pill),
-          onTap: () => setState(() => _open = !_open),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Ico(AppIcon.tools, size: 14, color: p.ink3),
-              const SizedBox(width: 6),
-              Text(summary, style: TypeScale.caption.copyWith(color: p.ink3)),
-              if (failed > 0) ...[const SizedBox(width: 6), Text('· ${t('{count} failed', {'count': failed})}', style: TypeScale.caption.copyWith(color: Palette.danger))],
-              const SizedBox(width: 2),
-              AnimatedRotation(turns: _open ? 0.25 : 0, duration: const Duration(milliseconds: 200), child: Ico(AppIcon.forward, size: 12, color: p.ink3)),
-            ]),
-          ),
-        ),
-        AnimatedSize(
-          duration: const Duration(milliseconds: 240),
-          curve: SpringCurve.shape,
-          alignment: Alignment.topLeft,
-          child: !_open
-              ? const SizedBox(width: double.infinity)
-              : Padding(
-                  padding: const EdgeInsets.only(left: 26, top: 2, bottom: 4),
-                  child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    if (widget.onThinking != null && ms != null && ms > 0)
-                      InkWell(
-                        onTap: () => widget.onThinking!(widget.item),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 3),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Ico(AppIcon.brain, size: 13, color: p.accent),
-                            const SizedBox(width: 6),
-                            Text(t('Thinking'), style: TypeScale.caption.copyWith(color: p.accent)),
-                            const SizedBox(width: 4),
-                            Ico(AppIcon.forward, size: 11, color: p.accent),
-                          ]),
-                        ),
-                      ),
-                    for (final (index, tool) in tools.indexed)
-                      InkWell(
-                        onTap: widget.onTap == null ? null : () => widget.onTap!({...widget.item, 'index': index, 'tool': tool}),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 3),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Container(width: 5, height: 5, decoration: BoxDecoration(color: jBool(tool, 'ok') == false ? Palette.danger : p.ink3, shape: BoxShape.circle)),
-                            const SizedBox(width: 8),
-                            Flexible(child: Text(jStr(tool, 'label') ?? jStr(tool, 'name') ?? '', style: TypeScale.caption.copyWith(color: jBool(tool, 'ok') == false ? Palette.danger : p.ink2))),
-                            if (widget.onTap != null) ...[const SizedBox(width: 4), Ico(AppIcon.forward, size: 11, color: p.ink3)],
-                          ]),
-                        ),
-                      ),
-                  ]),
-                ),
-        ),
-      ]),
-    );
   }
 }
 

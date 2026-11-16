@@ -1,9 +1,13 @@
-// What a Bot is doing right now, at the foot of the message list: its avatar
-// and a bubble with a pulse and a shimmering line, where its reply will land.
+// What a Bot is doing right now, at the foot of the message list: its avatar and
+// a bubble with what it says it is doing, where its reply will land. The steps it
+// described earlier in the turn stay above, dimmed, so a long run reads as
+// progress. Tools are never named; only the Bot's own words show.
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 
+import '../../data/json.dart';
 import '../../data/team_state.dart';
 import '../../ui/avatar.dart';
 import '../../ui/i18n.dart';
@@ -11,11 +15,20 @@ import '../../ui/icons.dart';
 import '../../ui/theme.dart';
 import '../../ui/widgets.dart';
 
+/// Earlier steps the bubble lists; older ones fold into a count.
+const _shownSteps = 3;
+
+/// The leading column: the width of the three dots, so checks line up under them.
+const _lead = 21.0;
+
 class WorkRow extends StatefulWidget {
-  const WorkRow({super.key, required this.bot, required this.text, this.name, this.onStop});
+  const WorkRow({super.key, required this.bot, required this.doing, this.name, this.onStop});
 
   final Bot? bot;
-  final String text;
+
+  /// The computer's work entry for this Bot (`work.bots`, `work.rooms`), or
+  /// just its activity word.
+  final Object? doing;
 
   /// The member's name, in a group.
   final String? name;
@@ -30,6 +43,10 @@ class WorkRow extends StatefulWidget {
 class _WorkRowState extends State<WorkRow> with SingleTickerProviderStateMixin {
   late final AnimationController _beat = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500));
 
+  /// What the Bot described earlier in this turn, oldest first. Kept here: the
+  /// computer sends only the step in hand.
+  final List<String> _done = [];
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -42,6 +59,22 @@ class _WorkRowState extends State<WorkRow> with SingleTickerProviderStateMixin {
   }
 
   @override
+  void didUpdateWidget(WorkRow old) {
+    super.didUpdateWidget(old);
+    final since = _sinceOf(widget.doing);
+    final before = _sinceOf(old.doing);
+    if (since != null && before != null && since != before) {
+      _done.clear();
+      return;
+    }
+    final was = workNote(old.doing);
+    if (was != null && was != workNote(widget.doing) && _done.lastOrNull != was) {
+      _done.add(was);
+      if (_done.length > 40) _done.removeAt(0);
+    }
+  }
+
+  @override
   void dispose() {
     _beat.dispose();
     super.dispose();
@@ -50,51 +83,44 @@ class _WorkRowState extends State<WorkRow> with SingleTickerProviderStateMixin {
   @override
   Widget build(BuildContext context) {
     final p = context.p;
-    final bubble = Container(
-      padding: EdgeInsets.fromLTRB(12, 9, widget.onStop == null ? 14 : 8, 9),
-      decoration: BoxDecoration(color: p.bubble, borderRadius: BorderRadius.circular(Radii.bubble).copyWith(bottomLeft: const Radius.circular(6))),
-      child: Row(mainAxisSize: MainAxisSize.min, children: [
-        _Pulse(beat: _beat, color: p.ink2),
+    final phrase = workPhrase(widget.doing);
+    final since = _sinceOf(widget.doing);
+    final hidden = math.max(0, _done.length - _shownSteps);
+    final current = Row(mainAxisSize: MainAxisSize.min, children: [
+      SizedBox(width: _lead, child: Center(child: _Pulse(beat: _beat, color: p.ink2))),
+      const SizedBox(width: 8),
+      Flexible(child: _Shimmer(beat: _beat, child: _Phrase(phrase))),
+      if (widget.onStop != null) ...[
         const SizedBox(width: 10),
-        Flexible(
-          child: AnimatedBuilder(
-            animation: _beat,
-            builder: (context, child) {
-              final at = _beat.value * 1.6 - 0.3;
-              return ShaderMask(
-                blendMode: BlendMode.srcIn,
-                shaderCallback: (rect) => LinearGradient(
-                  colors: [p.ink3, p.ink, p.ink3],
-                  stops: [(at - 0.25).clamp(0.0, 1.0), at.clamp(0.0, 1.0), (at + 0.25).clamp(0.0, 1.0)],
-                ).createShader(rect),
-                child: child,
-              );
-            },
-            child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 220),
-              layoutBuilder: (current, previous) => Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
-              child: Text(widget.text, key: ValueKey(widget.text), maxLines: 1, overflow: TextOverflow.ellipsis, style: TypeScale.small.copyWith(color: p.ink)),
+        Tooltip(
+          message: t('Stop'),
+          child: Pressable(
+            onTap: widget.onStop,
+            haptic: true,
+            scale: 0.85,
+            child: Container(
+              width: 22,
+              height: 22,
+              decoration: BoxDecoration(color: p.ink.withValues(alpha: 0.08), shape: BoxShape.circle),
+              child: Center(child: Ico(AppIcon.stop, size: 12, color: p.ink2)),
             ),
           ),
         ),
-        if (widget.onStop != null) ...[
-          const SizedBox(width: 8),
-          Tooltip(
-            message: t('Stop'),
-            child: Pressable(
-              onTap: widget.onStop,
-              haptic: true,
-              scale: 0.85,
-              child: Container(
-                width: 22,
-                height: 22,
-                decoration: BoxDecoration(color: p.ink.withValues(alpha: 0.08), shape: BoxShape.circle),
-                child: Center(child: Ico(AppIcon.stop, size: 12, color: p.ink2)),
-              ),
-            ),
-          ),
-        ],
-      ]),
+      ],
+    ]);
+    final bubble = Container(
+      padding: EdgeInsets.fromLTRB(12, 10, widget.onStop == null ? 14 : 8, 10),
+      decoration: BoxDecoration(color: p.bubble, borderRadius: BorderRadius.circular(Radii.bubble).copyWith(bottomLeft: const Radius.circular(6))),
+      child: AnimatedSize(
+        duration: const Duration(milliseconds: 280),
+        curve: SpringCurve.shape,
+        alignment: Alignment.bottomLeft,
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          if (hidden > 0) _Earlier(key: const ValueKey('earlier'), count: hidden),
+          for (var i = hidden; i < _done.length; i++) _DoneStep(key: ValueKey(i), text: _done[i]),
+          current,
+        ]),
+      ),
     );
     final row = Row(crossAxisAlignment: CrossAxisAlignment.end, children: [
       BotAvatar(bot: widget.bot, size: 28, working: true),
@@ -118,8 +144,172 @@ class _WorkRowState extends State<WorkRow> with SingleTickerProviderStateMixin {
         opacity: value.clamp(0.0, 1.0),
         child: Transform.translate(offset: Offset(0, (1 - value) * 10), child: child),
       ),
-      child: Padding(padding: const EdgeInsets.only(top: 8, right: 40), child: row),
+      child: Padding(
+        padding: const EdgeInsets.only(top: 8, right: 40),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, mainAxisSize: MainAxisSize.min, children: [
+          row,
+          if (since != null) Padding(padding: const EdgeInsets.only(top: 3, left: 42), child: _Elapsed(since: since)),
+        ]),
+      ),
     );
+  }
+}
+
+int? _sinceOf(Object? doing) => jInt(doing, 'since');
+
+/// The step in hand. A new one rises in as the last one rises out, into the
+/// list of steps done above it.
+class _Phrase extends StatelessWidget {
+  const _Phrase(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.p;
+    return ClipRect(
+      child: AnimatedSwitcher(
+        duration: const Duration(milliseconds: 240),
+        switchInCurve: Curves.easeOutCubic,
+        switchOutCurve: Curves.easeInCubic,
+        layoutBuilder: (current, previous) => Stack(alignment: Alignment.centerLeft, children: [...previous, ?current]),
+        transitionBuilder: (child, animation) {
+          final incoming = child.key == ValueKey(text);
+          return FadeTransition(
+            opacity: animation,
+            child: SlideTransition(position: Tween(begin: Offset(0, incoming ? 0.5 : -0.5), end: Offset.zero).animate(animation), child: child),
+          );
+        },
+        child: Semantics(
+          key: ValueKey(text),
+          liveRegion: true,
+          child: Text(text, maxLines: 2, overflow: TextOverflow.ellipsis, style: TypeScale.small.copyWith(color: p.ink)),
+        ),
+      ),
+    );
+  }
+}
+
+/// A light sweep across the text in hand, so the bubble reads as live.
+class _Shimmer extends StatelessWidget {
+  const _Shimmer({required this.beat, required this.child});
+
+  final Animation<double> beat;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.p;
+    return AnimatedBuilder(
+      animation: beat,
+      builder: (context, child) {
+        final at = beat.value * 1.6 - 0.3;
+        return ShaderMask(
+          blendMode: BlendMode.srcIn,
+          shaderCallback: (rect) => LinearGradient(
+            colors: [p.ink2, p.ink, p.ink2],
+            stops: [(at - 0.25).clamp(0.0, 1.0), at.clamp(0.0, 1.0), (at + 0.25).clamp(0.0, 1.0)],
+          ).createShader(rect),
+          child: child,
+        );
+      },
+      child: child,
+    );
+  }
+}
+
+/// A step the Bot described earlier in this turn.
+class _DoneStep extends StatelessWidget {
+  const _DoneStep({super.key, required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.p;
+    return _FadeIn(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(width: _lead, child: Center(child: Ico(AppIcon.check, size: 13, color: p.ink3))),
+          const SizedBox(width: 8),
+          Flexible(child: Text(text, maxLines: 1, overflow: TextOverflow.ellipsis, style: TypeScale.caption.copyWith(color: p.ink3))),
+        ]),
+      ),
+    );
+  }
+}
+
+/// How many steps came before the ones listed.
+class _Earlier extends StatelessWidget {
+  const _Earlier({super.key, required this.count});
+
+  final int count;
+
+  @override
+  Widget build(BuildContext context) {
+    final p = context.p;
+    return _FadeIn(
+      child: Padding(
+        padding: const EdgeInsets.only(bottom: 6),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(width: _lead + 8),
+          Text(t('{count} earlier', {'count': count}), style: TypeScale.caption.copyWith(color: p.ink3)),
+        ]),
+      ),
+    );
+  }
+}
+
+class _FadeIn extends StatelessWidget {
+  const _FadeIn({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOut,
+      builder: (context, value, child) => Opacity(opacity: value, child: child),
+      child: child,
+    );
+  }
+}
+
+/// How long the Bot has been at it, counted on the computer's clock from when
+/// the turn began.
+class _Elapsed extends StatefulWidget {
+  const _Elapsed({required this.since});
+
+  final int since;
+
+  @override
+  State<_Elapsed> createState() => _ElapsedState();
+}
+
+class _ElapsedState extends State<_Elapsed> {
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (_) {
+      if (mounted) setState(() {});
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final ms = math.max(1000, DateTime.now().millisecondsSinceEpoch - widget.since);
+    return Text(t('Working for {time}', {'time': elapsedLabel(ms)}), style: TypeScale.caption.copyWith(color: context.p.ink3));
   }
 }
 

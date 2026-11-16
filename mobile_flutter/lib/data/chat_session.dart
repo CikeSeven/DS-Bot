@@ -131,7 +131,8 @@ class ChatSession extends ChangeNotifier {
   List<ChatRow> get rows {
     if (!_rowsDirty) return _rows;
     final outgoing = _outbox[chatKey] ?? const [];
-    final all = [...items, ...outgoing.map((entry) => entry.item)];
+    // Tool steps stay off the phone's list; what a Bot does shows only while it works.
+    final all = [...items, ...outgoing.map((entry) => entry.item)].where((item) => jStr(item, 'kind') != 'steps').toList();
     final keys = keysOf(all);
     final photosByLocal = {for (final entry in outgoing) jStr(entry.item, 'localId'): entry.photos};
     _rows = [
@@ -193,8 +194,8 @@ class ChatSession extends ChangeNotifier {
 
   Future<ChatPageData> _read([Object? cursor]) async {
     final value = room
-        ? await team.call('room-chat', {'roomId': id, 'steps': true, 'cursor': ?cursor})
-        : await team.call('chat', {'botId': id, 'steps': true, 'cursor': ?cursor});
+        ? await team.call('room-chat', {'roomId': id, 'cursor': ?cursor})
+        : await team.call('chat', {'botId': id, 'cursor': ?cursor});
     return ChatPageData.from(value);
   }
 

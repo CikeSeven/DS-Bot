@@ -255,8 +255,6 @@ class _ChatPageState extends State<ChatPage> {
             onLongPress: (row) => _rowMenu(context, row, chat),
             onRetry: chat.retry,
             onDiscard: chat.discard,
-            onSteps: TeamScope.read(context).has('step-detail') ? (item) => showStepDetail(context, chat.sessionId, item) : null,
-            onThinking: TeamScope.read(context).has('thinking-text') ? (item) => showThinking(context, chat.sessionId, item) : null,
           ),
         );
       },
@@ -290,7 +288,7 @@ class _ChatPageState extends State<ChatPage> {
   List<Widget> _workRows(BuildContext context, TeamState team, Bot? bot, Room? room) {
     if (bot != null) {
       if (!team.botWorking(bot.id)) return const [];
-      return [WorkRow(key: ValueKey('work-${bot.id}'), bot: bot, text: workPhrase(team.workBots[bot.id] ?? team.activity[bot.id]))];
+      return [WorkRow(key: ValueKey('work-${bot.id}'), bot: bot, doing: team.workBots[bot.id] ?? team.activity[bot.id])];
     }
     if (room == null) return const [];
     return [
@@ -300,7 +298,7 @@ class _ChatPageState extends State<ChatPage> {
             key: ValueKey('work-${member.id}'),
             bot: member,
             name: member.name,
-            text: workPhrase(entry),
+            doing: entry,
             onStop: () => run(context, 'stop-member-work', {'roomId': room.id, 'botId': member.id}),
           ),
     ];
