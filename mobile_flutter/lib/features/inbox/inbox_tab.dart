@@ -4,11 +4,11 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../api/link_client.dart';
 import '../../app/app_state.dart';
 import '../../app/nav.dart';
 import '../../data/json.dart';
 import '../../data/pending.dart';
-import '../../link/link.dart';
 import '../../ui/avatar.dart';
 import '../../ui/glass.dart';
 import '../../ui/i18n.dart';

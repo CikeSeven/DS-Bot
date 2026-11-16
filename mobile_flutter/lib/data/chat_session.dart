@@ -1,12 +1,12 @@
 // One open chat with a Bot or a group: its pages, the messages this phone is
 // still sending, the live streaming bubble, and read times. Port of the data
-// half of mobile/src/screens/Chat.tsx.
+// half of the Expo app's src/screens/Chat.tsx.
 import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
-import '../link/link.dart';
+import '../api/link_client.dart';
 import 'chat_cache.dart';
 import 'chat_items.dart';
 import 'json.dart';

@@ -44,7 +44,7 @@ android {
     }
 
     defaultConfig {
-        // A separate id from the Expo app, so both can be installed side by side.
+        // Its own id, not the retired Expo app's.
         applicationId = "com.dsbot"
         minSdk = 24
         targetSdk = flutter.targetSdkVersion

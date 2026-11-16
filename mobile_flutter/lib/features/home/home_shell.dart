@@ -5,13 +5,13 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../api/link_client.dart';
 import '../../app/app_state.dart';
 import '../../app/nav.dart';
 import '../../background/notifier.dart';
 import '../../background/wiring.dart';
 import '../../data/json.dart';
 import '../../data/pending.dart';
-import '../../link/link.dart';
 import '../../ui/glass.dart';
 import '../../ui/i18n.dart';
 import '../../ui/icons.dart';

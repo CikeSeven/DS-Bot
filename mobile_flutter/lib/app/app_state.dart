@@ -10,7 +10,7 @@ import '../data/gate.dart';
 import '../data/seen.dart';
 import '../data/store.dart';
 import '../data/team_session.dart';
-import '../link/link.dart';
+import '../link/rust_link.dart';
 import '../ui/i18n.dart';
 import 'platform.dart';
 
@@ -54,11 +54,14 @@ class AppPrefs {
   final bool welcomed;
 }
 
-/// Opens the link once with the pairing code inside the handshake.
+/// Opens a new link with the pairing code inside the handshake.
 typedef PairOpener = Future<LinkClient> Function(SavedComputer candidate, PhoneIdentity identity, String pairingCode);
 
-Future<LinkClient> _openRelayPair(SavedComputer candidate, PhoneIdentity identity, String pairingCode) async =>
-    RelayLinkClient.open(candidate, identity, pairingCode: pairingCode, phoneName: await phoneName());
+Future<LinkClient> _openRustPair(SavedComputer candidate, PhoneIdentity identity, String pairingCode) async =>
+    RustLinkClient.open(candidate, identity, pairingCode: pairingCode, phoneName: await phoneName());
+
+Future<LinkClient> _openRust(SavedComputer computer, PhoneIdentity identity, {String? pairingCode}) async =>
+    RustLinkClient.open(computer, identity, pairingCode: pairingCode, phoneName: await phoneName());
 
 /// A computer that accepted this phone, not saved yet.
 class PairedComputer {
@@ -73,7 +76,7 @@ class PairedComputer {
 
 class AppState extends ChangeNotifier {
   AppState._(this.store, this.seen, this.identity, this._computers, this._prefs, {this.demo, PairOpener? pairOpener, LinkOpener? sessionOpener})
-      : _openPair = pairOpener ?? _openRelayPair,
+      : _openPair = pairOpener ?? _openRustPair,
         _openSession = sessionOpener;
 
   final PhoneStore store;
@@ -85,6 +88,9 @@ class AppState extends ChangeNotifier {
   ComputerList _computers;
   AppPrefs _prefs;
   TeamSession? _session;
+
+  /// The link a pairing opened, held until the new team session has joined it.
+  LinkClient? _pairing;
 
   /// Set when the app should open the pairing screen with this link filled in.
   String? pendingPairLink;
@@ -127,11 +133,7 @@ class AppState extends ChangeNotifier {
       computer: computer,
       identity: identity,
       unlocker: demo != null ? const AlwaysUnlocked() : DeviceUnlocker(),
-      open: demo != null
-          ? (computer, identity, {pairingCode}) async => demo
-          : _openSession ??
-              (computer, identity, {pairingCode}) async =>
-                  RelayLinkClient.open(computer, identity, pairingCode: pairingCode, phoneName: await phoneName()),
+      open: demo != null ? (computer, identity, {pairingCode}) async => demo : _openSession ?? _openRust,
     );
     _session = session;
     session.start();
@@ -146,24 +148,41 @@ class AppState extends ChangeNotifier {
   /// Back from the first pairing screen to the welcome page.
   Future<void> reopenWelcome() => setPrefs({'welcomed': 'off'});
 
-  /// Opens the link in a pairing link once, with the code inside the encrypted
-  /// handshake. Nothing is saved until [adopt].
+  /// Opens the link in a pairing link, with the code inside the encrypted
+  /// handshake, and waits until the computer accepts or refuses it. Nothing is
+  /// saved until [adopt].
   Future<PairedComputer> connect(String link) async {
     final offer = parsePairingUri(link);
+    await _dropPairing();
     final client = await _openPair(SavedComputer.fromOffer(offer), identity, offer.code);
-    final hostName = client.hostName;
-    await client.close();
-    return PairedComputer(offer, hostName);
+    _pairing = client;
+    try {
+      await linkSettled(client);
+    } on Object {
+      if (identical(_pairing, client)) _pairing = null;
+      await client.close();
+      rethrow;
+    }
+    return PairedComputer(offer, client.hostName);
   }
 
-  /// Saves a computer that accepted this phone and switches to it.
+  /// Saves a computer that accepted this phone and switches to it. The team
+  /// session joins the pairing's link, so there is no second handshake.
   Future<SavedComputer> adopt(PairedComputer paired) async {
     final saved = await store.addComputer(paired.offer, name: paired.hostName);
     _computers = await store.listComputers();
     pendingPairLink = null;
     _startSession();
     notifyListeners();
+    await _session?.opened;
+    await _dropPairing();
     return saved;
+  }
+
+  Future<void> _dropPairing() async {
+    final pairing = _pairing;
+    _pairing = null;
+    await pairing?.close();
   }
 
   Future<SavedComputer> pair(String link) async => adopt(await connect(link));
@@ -201,10 +220,13 @@ class AppState extends ChangeNotifier {
 
   void cancelPairing() {
     pendingPairLink = null;
+    unawaited(_dropPairing());
     notifyListeners();
   }
 
   void setForeground(bool foreground) => _session?.setForeground(foreground);
+
+  void networkChanged() => _session?.networkChanged();
 
   /// Keeps the link up in the background (Android foreground service), so
   /// questions and approvals arrive as system notifications.
@@ -221,6 +243,7 @@ class AppState extends ChangeNotifier {
     final session = _session;
     _session = null;
     if (session != null) unawaited(session.stop().whenComplete(session.dispose));
+    unawaited(_dropPairing());
     super.dispose();
   }
 }
@@ -260,6 +283,21 @@ void _showError(BuildContext context, Object error) {
   final messenger = ScaffoldMessenger.maybeOf(context);
   messenger?.hideCurrentSnackBar();
   messenger?.showSnackBar(SnackBar(content: Text(errorText(error))));
+}
+
+/// A word for a team that is not live: the computer is away, or this phone
+/// is getting its own connection back.
+String offlineLabel(TeamSession session) {
+  if (session.computerAway) return t('Computer offline');
+  return session.linked ? t('Connecting…') : t('Reconnecting…');
+}
+
+/// The line over a team that is not live.
+String offlineText(TeamSession session) {
+  if (session.computerAway) return t('The computer is not connected to the Server. Check that DS Bot is open and phone access is on.');
+  if (session.reconnecting) return t('Reconnecting…');
+  final error = session.error;
+  return error == null ? t('Connecting…') : errorText(error);
 }
 
 /// What to tell the user about a failed call or a dropped link.

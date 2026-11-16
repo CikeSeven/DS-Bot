@@ -1,0 +1,28 @@
+[package]
+name = "dsbot_link_ffi"
+description = "The phone link (link/crates/client) for the Flutter app, through flutter_rust_bridge."
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+publish = false
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+
+[dependencies]
+flutter_rust_bridge = "=2.13.0"
+dsbot-link-client = { path = "../../link/crates/client" }
+dsbot-link-core = { path = "../../link/crates/core" }
+tokio = { version = "1", default-features = false, features = ["sync"] }
+
+# Not a member of link/'s workspace: the app builds this crate on its own.
+[workspace]
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(frb_expand)'] }
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+strip = true

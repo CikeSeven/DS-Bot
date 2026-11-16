@@ -1,5 +1,5 @@
 // Helpers for the display items the computer sends for a chat (parts.js
-// displayItems, mobile.js roomItems). Ports of mobile/src/screens/chat/settled.ts
+// displayItems, mobile.js roomItems). Ports of the Expo app's src/screens/chat/settled.ts
 // and the pure parts of items.tsx.
 import 'dart:convert';
 

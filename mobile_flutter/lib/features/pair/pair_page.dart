@@ -11,7 +11,7 @@ import 'package:flutter/services.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
 
 import '../../app/app_state.dart';
-import '../../link/link.dart';
+import '../../link/rust_link.dart';
 import '../../ui/liquid_glass.dart';
 import '../../ui/glass_button.dart';
 import '../../ui/i18n.dart';

@@ -1,7 +1,6 @@
 import 'package:dsbot_mobile/api/link_client.dart';
 import 'package:dsbot_mobile/data/pending.dart';
 import 'package:dsbot_mobile/data/team_session.dart';
-import 'package:dsbot_mobile/link/link.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_link.dart';
@@ -12,9 +11,18 @@ TeamSession session(FakeLinkClient Function() make, {Duration poll = const Durat
     identity: testIdentity,
     open: (computer, identity, {pairingCode}) async => make(),
     pollEvery: poll,
-    retryAfter: const Duration(milliseconds: 40),
   );
 }
+
+/// A computer that is current and has an empty team; counts hellos.
+FakeLinkClient current(void Function() onHello) => FakeLinkClient((endpoint, payload, state) {
+      if (endpoint == 'hello') {
+        onHello();
+        return ok(hello());
+      }
+      if (endpoint == 'notices') return ok({'boot': 'b1', 'seq': 0, 'notices': []});
+      return ok({'revision': 1, 'bots': []});
+    });
 
 void main() {
   test('polling keeps going after a transient error and settles pending items', () async {
@@ -163,50 +171,143 @@ void main() {
     await team.stop();
   });
 
-  test('an outdated computer is reported and retried, and a dropped link reconnects', () async {
+  test('only a hello that answers without an api means an outdated computer', () async {
+    var hellos = 0;
     var opens = 0;
-    var api = 0;
-    late FakeLinkClient current;
+    late FakeLinkClient link;
     final team = session(() {
       opens += 1;
-      return current = FakeLinkClient((endpoint, payload, state) {
+      return link = FakeLinkClient((endpoint, payload, state) {
         if (endpoint == 'hello') {
-          api += 1;
-          return ok(api == 1 ? {...hello(), 'api': null} : hello());
+          hellos += 1;
+          if (hellos == 1) throw LinkError('RPC_TIMEOUT', 'The computer did not answer in time.');
+          return ok(hellos == 2 ? {...hello(), 'api': null} : hello());
         }
         if (endpoint == 'notices') return ok({'boot': 'b1', 'seq': 0, 'notices': []});
         return ok({'revision': 1, 'bots': []});
       });
-    })
+    }, poll: const Duration(milliseconds: 40))
       ..start();
-    await settle(20);
-    expect((team.error as BotError?)?.code, 'link/outdated');
-    await settle(120);
-    expect(team.online, isTrue);
-    expect(opens, 2);
-    current.drop();
+    await settle(10);
+    expect(errorCode(team.error), 'RPC_TIMEOUT', reason: 'a call lost in transit is not an old computer');
+    await settle(60);
+    expect(hellos, 2, reason: 'hello goes again while the link is up');
+    expect(errorCode(team.error), 'link/outdated');
     expect(team.online, isFalse);
-    await settle(120);
-    expect(opens, 3);
+    expect(team.linked, isTrue);
+    // The computer updates DS Bot and restarts: a new handshake, a new hello.
+    link.renew();
+    await settle();
     expect(team.online, isTrue);
+    expect(team.error, isNull);
+    expect(opens, 1, reason: 'the session never opens a second link');
     await team.stop();
   });
 
-  test('a phone the computer no longer accepts stops retrying', () async {
+  test('a resumed link does not say hello again, a new handshake does', () async {
+    var hellos = 0;
+    late FakeLinkClient link;
+    final team = session(() => link = current(() => hellos += 1), poll: const Duration(seconds: 30))..start();
+    await settle();
+    expect(team.online, isTrue);
+    expect(hellos, 1);
+
+    link.setStatus(const LinkStatus(LinkPhase.reconnecting));
+    expect(team.online, isFalse);
+    expect(team.reconnecting, isTrue);
+    link.setStatus(const LinkStatus(LinkPhase.online, resumed: true));
+    await settle();
+    expect(team.online, isTrue);
+    expect(hellos, 1);
+    expect(link.calls.where((endpoint) => endpoint == 'state').length, greaterThan(1), reason: 'a state read is fine');
+
+    link.renew();
+    await settle();
+    expect(team.online, isTrue);
+    expect(hellos, 2);
+    expect(link.calls.where((endpoint) => endpoint == 'notices').length, 2);
+    await team.stop();
+  });
+
+  test('going to the background and back never strands the session', () async {
+    var hellos = 0;
     var opens = 0;
-    final team = TeamSession(
-      computer: testComputer,
-      identity: testIdentity,
-      open: (computer, identity, {pairingCode}) async {
-        opens += 1;
-        throw LinkError('NOT_PAIRED', 'not paired');
-      },
-      retryAfter: const Duration(milliseconds: 20),
-    )..start();
+    late FakeLinkClient link;
+    final team = session(() {
+      opens += 1;
+      return link = current(() => hellos += 1);
+    }, poll: const Duration(milliseconds: 40))
+      ..start();
+    await settle();
+    expect(team.online, isTrue);
+
+    team.setForeground(false);
+    link.setStatus(const LinkStatus(LinkPhase.reconnecting));
+    await settle(100);
+    // The link comes back on its own, even in the background.
+    link.setStatus(const LinkStatus(LinkPhase.online, resumed: true));
+    await settle();
+    expect(team.online, isTrue);
+    team.setForeground(true);
+    await settle();
+    expect(team.online, isTrue);
+    expect(link.foregrounds, [false, true]);
+    expect(opens, 1);
+    expect(hellos, 1);
+    expect(await team.call('state'), isNotNull);
+    await team.stop();
+  });
+
+  test('the computer being away is told apart from this phone reconnecting', () async {
+    late FakeLinkClient link;
+    final team = session(() => link = current(() {}), poll: const Duration(seconds: 30))..start();
+    await settle();
+    link.setStatus(const LinkStatus(LinkPhase.hostAway));
+    expect(team.online, isFalse);
+    expect(team.computerAway, isTrue);
+    expect(team.reconnecting, isFalse);
+    link.setStatus(const LinkStatus(LinkPhase.reconnecting));
+    expect(team.computerAway, isFalse);
+    expect(team.reconnecting, isTrue);
+    team.networkChanged();
+    expect(link.networkChanges, 1);
+    await team.stop();
+  });
+
+  test('a phone the computer no longer accepts stops, and the team is cleared', () async {
+    var opens = 0;
+    late FakeLinkClient link;
+    final team = session(() {
+      opens += 1;
+      return link = current(() {});
+    }, poll: const Duration(milliseconds: 20))
+      ..start();
+    await settle();
+    expect(team.team, isNotNull);
+    link.setStatus(const LinkStatus(LinkPhase.rejected, code: 'NOT_PAIRED', message: 'not paired'));
     await settle(100);
     expect(opens, 1);
     expect(isRejected(team.error), isTrue);
+    expect(team.team, isNull);
+    expect(team.online, isFalse);
     await team.stop();
+  });
+
+  test('a link someone else closed is joined again', () async {
+    final links = <FakeLinkClient>[];
+    final team = session(() {
+      final link = current(() {});
+      links.add(link);
+      return link;
+    }, poll: const Duration(seconds: 30))
+      ..start();
+    await settle();
+    links.single.setStatus(LinkStatus.closed);
+    await settle();
+    expect(links, hasLength(2));
+    expect(team.online, isTrue);
+    await team.stop();
+    expect(links.last.closed, isTrue);
   });
 
   test('missed notices replay into the feed and duplicates are dropped', () async {

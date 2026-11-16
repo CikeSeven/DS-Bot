@@ -1,8 +1,9 @@
 // "Keep connected in the background": an Android foreground service keeps the
 // app's process alive, so the live link goes on delivering notices. If the app's
-// own isolate is gone (swiped away), the service holds a link of its own until
-// the app comes back; one device id has one link at the Relay, so the service
-// steps aside whenever the app's isolate is alive.
+// own isolate is gone (swiped away), the service follows the team itself until
+// the app comes back. Both isolates open the same process-wide Rust session, so
+// neither pushes the other off the Server; the service steps aside while the
+// app's isolate is alive only so that a notice is not shown twice.
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui';
@@ -10,10 +11,10 @@ import 'dart:ui';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 
-import '../api/link_client.dart';
 import '../app/platform.dart';
 import '../data/store.dart';
 import '../data/team_session.dart';
+import '../link/rust_link.dart';
 import '../shared/shared_data.dart';
 import '../ui/i18n.dart';
 import 'notifier.dart';
@@ -79,6 +80,7 @@ class _LinkTaskHandler extends TaskHandler {
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
     WidgetsFlutterBinding.ensureInitialized();
     DartPluginRegistrant.ensureInitialized();
+    await initRustLink();
     try {
       await SharedData.load();
       await I18n.load();
@@ -116,7 +118,7 @@ class _LinkTaskHandler extends TaskHandler {
         computer: computer,
         identity: identity,
         pollEvery: const Duration(minutes: 5),
-        open: (computer, identity, {pairingCode}) => RelayLinkClient.open(computer, identity, phoneName: name),
+        open: (computer, identity, {pairingCode}) async => RustLinkClient.open(computer, identity, phoneName: name),
       );
       _session = session;
       Notifier.instance.attach(session);

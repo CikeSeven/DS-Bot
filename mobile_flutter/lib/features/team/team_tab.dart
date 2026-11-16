@@ -212,7 +212,7 @@ class _ComputerTitle extends StatelessWidget {
             const SizedBox(width: 6),
             Flexible(
               child: Text(
-                session.online ? (name.isEmpty ? t('Connected') : name) : (session.linked ? t('Connecting…') : t('Reconnecting…')),
+                session.online ? (name.isEmpty ? t('Connected') : name) : offlineLabel(session),
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 style: TypeScale.caption.copyWith(color: p.ink2),
@@ -240,7 +240,11 @@ class _Loading extends StatelessWidget {
         child: Column(mainAxisSize: MainAxisSize.min, children: [
           if (error == null) CircularProgressIndicator(color: p.accent) else Ico(AppIcon.alert, size: 36, color: p.ink3),
           const SizedBox(height: 16),
-          Text(error == null ? t('Connecting to your computer…') : errorText(error), textAlign: TextAlign.center, style: TypeScale.small.copyWith(color: p.ink2)),
+          Text(
+            session.computerAway ? offlineText(session) : (error == null ? t('Connecting to your computer…') : errorText(error)),
+            textAlign: TextAlign.center,
+            style: TypeScale.small.copyWith(color: p.ink2),
+          ),
           if (error != null) ...[
             const SizedBox(height: 16),
             Btn(t('Computers'), kind: BtnKind.secondary, icon: AppIcon.monitor, onTap: () => push(context, const ComputersPage())),
@@ -266,7 +270,7 @@ class _OfflineLine extends StatelessWidget {
       child: Row(children: [
         SizedBox.square(dimension: 14, child: CircularProgressIndicator(strokeWidth: 1.6, color: p.ink3)),
         const SizedBox(width: 10),
-        Expanded(child: Text(session.error == null ? t('Reconnecting…') : errorText(session.error), style: TypeScale.small.copyWith(color: p.ink2))),
+        Expanded(child: Text(offlineText(session), style: TypeScale.small.copyWith(color: p.ink2))),
       ]),
     );
   }

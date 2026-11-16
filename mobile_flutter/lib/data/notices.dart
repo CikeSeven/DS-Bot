@@ -1,4 +1,4 @@
-// Port of mobile/src/team/notices.ts: tracks the last host notice seq per boot,
+// Port of the Expo app's src/team/notices.ts: tracks the last host notice seq per boot,
 // so a reconnect catches up on missed notices without replaying live ones.
 import 'json.dart';
 

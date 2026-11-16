@@ -1,4 +1,4 @@
-// Port of mobile/src/team/optimistic.ts: a write's effect on the team state,
+// Port of the Expo app's src/team/optimistic.ts: a write's effect on the team state,
 // guessed before the reply lands so a remote edit feels instant. The reply's
 // state, or a full reload after a failure, always wins afterwards.
 import 'json.dart';

@@ -1,10 +1,10 @@
 // What the phone keeps: its identity, the paired computers, prefs, read times.
-// Port of mobile/src/store.ts over a small key-value interface, so tests run
+// Port of the Expo app's src/store.ts over a small key-value interface, so tests run
 // without the platform keystore.
 import 'dart:convert';
 
 import '../api/link_client.dart';
-import '../link/link.dart';
+import '../link/rust_link.dart';
 
 abstract class KeyValueStore {
   Future<String?> read(String key);

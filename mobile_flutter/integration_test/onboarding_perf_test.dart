@@ -16,7 +16,7 @@ import 'package:dsbot_mobile/app/app.dart';
 import 'package:dsbot_mobile/app/app_state.dart';
 import 'package:dsbot_mobile/data/store.dart';
 import 'package:dsbot_mobile/features/onboarding/welcome_page.dart';
-import 'package:dsbot_mobile/link/link.dart';
+import 'package:dsbot_mobile/link/rust_link.dart';
 import 'package:dsbot_mobile/shared/shared_data.dart';
 import 'package:dsbot_mobile/ui/glass_button.dart';
 import 'package:dsbot_mobile/ui/i18n.dart';
@@ -38,10 +38,16 @@ class _AcceptingComputer implements LinkClient {
   Unsubscribe onEvent(void Function(RpcEvent event) handler) => () {};
 
   @override
-  Unsubscribe onClose(void Function() handler) => () {};
+  LinkStatus get status => const LinkStatus(LinkPhase.online);
 
   @override
-  void probe() {}
+  Stream<LinkStatus> get statuses => const Stream.empty();
+
+  @override
+  void networkChanged() {}
+
+  @override
+  void setForeground(bool foreground) {}
 
   @override
   Future<void> close() async {}
@@ -86,6 +92,7 @@ void main() {
   binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   testWidgets('the first-run flow keeps within the frame budget', (tester) async {
+    await initRustLink();
     await SharedData.load();
     await I18n.load();
     await LiquidGlassShader.load();
@@ -97,13 +104,14 @@ void main() {
       sessionOpener: (computer, identity, {pairingCode}) => never.future,
     );
     final keys = generateKeyPair();
-    final link = pairingUri(PairingOffer(
-      server: 'wss://bot.sisct.xyz/v1/link',
-      hostDeviceId: deviceIdFor(keys.publicKey),
-      hostKey: keys.publicKey,
-      code: 'ABCD-1234',
-      name: 'Desk',
-    ));
+    final link = Uri(scheme: 'dsbot', host: 'pair', queryParameters: {
+      'v': '1',
+      'server': 'wss://bot.sisct.xyz/v2/link',
+      'host': deviceIdFor(keys.publicKey),
+      'key': keys.publicKey,
+      'code': 'ABCD-1234',
+      'name': 'Desk',
+    }).toString();
 
     final frames = <FrameTiming>[];
     void collect(List<FrameTiming> timings) => frames.addAll(timings);

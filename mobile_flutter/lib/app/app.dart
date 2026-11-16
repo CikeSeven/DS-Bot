@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:app_links/app_links.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -25,12 +26,27 @@ class DsBotApp extends StatefulWidget {
 
 class _DsBotAppState extends State<DsBotApp> with WidgetsBindingObserver {
   StreamSubscription<Uri>? _links;
+  StreamSubscription<List<ConnectivityResult>>? _network;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (widget.state.demo == null) unawaited(_listenLinks());
+    if (widget.state.demo == null) {
+      unawaited(_listenLinks());
+      _listenNetwork();
+    }
+  }
+
+  /// On a new network the old socket is bound to the old one: the link dials
+  /// again at once instead of waiting for its probe to time out. The first
+  /// event only names the network the app started on.
+  void _listenNetwork() {
+    var first = true;
+    _network = Connectivity().onConnectivityChanged.listen((_) {
+      if (!first) widget.state.networkChanged();
+      first = false;
+    }, onError: (Object _) {});
   }
 
   Future<void> _listenLinks() async {
@@ -59,6 +75,7 @@ class _DsBotAppState extends State<DsBotApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_links?.cancel());
+    unawaited(_network?.cancel());
     super.dispose();
   }
 

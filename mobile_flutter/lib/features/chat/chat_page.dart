@@ -297,7 +297,7 @@ class _ChatPageState extends State<ChatPage> {
           if (!session.online)
             Padding(
               padding: const EdgeInsets.only(top: 6),
-              child: Text(t('Reconnecting…'), textAlign: TextAlign.center, style: TypeScale.caption.copyWith(color: p.ink3)),
+              child: Text(offlineLabel(session), textAlign: TextAlign.center, style: TypeScale.caption.copyWith(color: p.ink3)),
             ),
         ]),
       ),
@@ -365,7 +365,7 @@ class _TitlePill extends StatelessWidget {
     final team = this.team;
     final working = team != null && (bot != null ? team.botWorking(bot!.id) : (room != null && team.roomWork(room!.id).isNotEmpty));
     final subtitle = !session.online
-        ? t('Reconnecting…')
+        ? offlineLabel(session)
         : working
             ? t('Working')
             : bot != null

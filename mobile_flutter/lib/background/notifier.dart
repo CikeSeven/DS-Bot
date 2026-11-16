@@ -1,7 +1,8 @@
 // System notifications for what the computer tells the phone: questions and
 // approvals (answerable from the notification), replies and finished work.
 // Actions tapped while the app runs are answered on its live link; with the app
-// gone, the background handler opens a short link of its own.
+// gone, the background handler opens the computer's link, which joins the
+// foreground service's session when the process still has one.
 import 'dart:async';
 import 'dart:convert';
 import 'dart:isolate';
@@ -16,7 +17,7 @@ import '../data/json.dart';
 import '../data/store.dart';
 import '../data/team_session.dart';
 import '../data/team_state.dart';
-import '../link/link.dart';
+import '../link/rust_link.dart';
 import '../ui/i18n.dart';
 
 const mainPortName = 'dsbot-main';
@@ -247,13 +248,14 @@ Future<void> notificationTapBackground(NotificationResponse response) async {
   if (call == null) return;
   WidgetsFlutterBinding.ensureInitialized();
   DartPluginRegistrant.ensureInitialized();
+  await initRustLink();
   final store = PhoneStore(SecureKeyValueStore());
   final computer = (await store.listComputers()).active;
   if (computer == null) return;
   final identity = await store.loadIdentity();
   LinkClient? client;
   try {
-    client = await RelayLinkClient.open(computer, identity, phoneName: await phoneName());
+    client = RustLinkClient.open(computer, identity, phoneName: await phoneName());
     await callBot(client, call.$1, call.$2, const Duration(seconds: 20));
   } on Object {
     // The question stays open; the user can answer in the app.

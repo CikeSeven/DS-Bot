@@ -1,10 +1,10 @@
 # DS Bot phone app (Flutter)
 
-The DS Bot app for Android and iOS, built with Flutter. It controls the Bot team that runs on your computer; nothing runs on the phone. It lives beside the Expo app in [../mobile](../mobile) and talks to the same computer side, with its own package id (`com.dsbot`), so both can be installed at once. A phone paired with one is not paired with the other.
+The DS Bot app for Android and iOS, built with Flutter. It controls the Bot team that runs on your computer; nothing runs on the phone. It replaces the earlier Expo app; its package id is `com.dsbot`.
 
 ## What is in it
 
-- `lib/link/`: the encrypted link, a byte-for-byte Dart port of [../link/src](../link/src) (Noise IK over the Relay Server, DSBF fragments, RPC).
+- `lib/link/`: the link to the computer. It is the Rust session in [../link/crates/client](../link/crates/client) (protocol v2: it reconnects and resumes by itself), reached through flutter_rust_bridge: `rust/` is the bridge crate, `rust_builder/` builds it into the app with Cargokit, and `lib/src/rust/` is the generated Dart. One process keeps one session per computer, so the app, the background service and notification actions share it.
 - `lib/data/`: the team session (sync by revision, optimistic writes, notices, read times), one chat (pages, sending, streaming), the demo team.
 - `lib/shared/`: what the phone shares with the desktop UI: themes, inks, the twenty characters, and a Dart port of deep-view's card formulas.
 - `lib/ui/`: the design system (palette from the desktop themes, type, springs, glass surfaces, line icons, avatars, Markdown).
@@ -13,7 +13,7 @@ The DS Bot app for Android and iOS, built with Flutter. It controls the Bot team
 
 ## Run
 
-Needs Flutter 3.47 or later and Node 22 or later (for the tools and the link tests). Android needs the Android SDK with API 37; iOS needs Xcode on macOS.
+Needs Flutter 3.47 or later, Rust (through rustup) and Node 22 or later (for the tools). Android needs the Android SDK with API 37 and the NDK version Flutter asks for (28.2.13676358) under the SDK's `ndk/`; Cargokit adds the Rust Android targets itself. iOS needs Xcode on macOS.
 
 ```sh
 flutter pub get
@@ -27,8 +27,8 @@ Pair on the computer under DS Bot Settings → Phone: scan the QR code, paste it
 
 ## Tests
 
-- `test/link/vectors_test.dart` compares the Dart link with vectors from the TypeScript one. After a change in `../link/src`, run `npm ci` in `../link`, then `node tool/gen_link_vectors.mjs`.
-- `test/link/relay_integration_test.dart` (tag `integration`) runs the Dart client against the real Relay Server and computer side from `../link` (`tool/link_test_host.mjs`).
+- Tests that make keys or read pairing links load the Rust library: `test/support/rust_link.dart` builds `rust/` for this computer with cargo first (a minute or two the first time). The link itself is tested in `../link`: `cargo test -p dsbot-link-client`.
+- After a change in `rust/src/api/`, regenerate the Dart side with `flutter_rust_bridge_codegen generate` (version 2.13.0, the same as the `flutter_rust_bridge` dependencies).
 - `test/shared/deep_view_test.dart` compares the formula port with cases from deep-view: `node tool/gen_deep_view_cases.mjs path/to/deep-view`.
 - `test/screens/screenshot_test.dart` (tag `screenshot`) renders the demo screens to `build/screenshots/`. It needs a CJK font installed; set `SHOT_DARK=1` for dark mode.
 
@@ -57,7 +57,7 @@ export DSBOT_ANDROID_KEY_ALIAS=…
 export DSBOT_ANDROID_KEY_PASSWORD=…   # defaults to the store password
 ```
 
-The version comes from `ds-bot/package.json`, and the versionCode follows the Expo app's rule, so a pre-release stays below its release. Every update must be signed with the same key, or Android refuses it. `.github/workflows/flutter-mobile.yml` builds and checks a signed APK in CI.
+The version comes from `ds-bot/package.json`, and the versionCode follows the rule the Expo app used, so a pre-release stays below its release. Every update must be signed with the same key, or Android refuses it. `.github/workflows/flutter-mobile.yml` builds and checks the APK in CI, and `.github/workflows/release.yml` builds the signed one that a release offers.
 
 ## Background notifications
 

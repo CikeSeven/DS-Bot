@@ -2,6 +2,7 @@
 // check. Needs a CJK font on this machine; skipped without one.
 //   flutter test --tags screenshot test/screens/screenshot_test.dart
 @Tags(['screenshot'])
+@Timeout(Duration(minutes: 5))
 library;
 
 import 'dart:async';
@@ -13,7 +14,6 @@ import 'package:dsbot_mobile/api/link_client.dart';
 import 'package:dsbot_mobile/app/app.dart';
 import 'package:dsbot_mobile/app/app_state.dart';
 import 'package:dsbot_mobile/data/store.dart';
-import 'package:dsbot_mobile/link/link.dart';
 import 'package:dsbot_mobile/shared/shared_data.dart';
 import 'package:dsbot_mobile/ui/i18n.dart';
 import 'package:flutter/material.dart';
@@ -22,6 +22,7 @@ import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_link.dart';
+import '../support/rust_link.dart';
 import '../support/platform_mocks.dart';
 
 const _fontPaths = [
@@ -57,6 +58,8 @@ Future<void> _shot(WidgetTester tester, GlobalKey key, String name) async {
 }
 
 void main() {
+  setUpAll(loadRustLink);
+
   testWidgets('demo screens', (tester) async {
     final fonts = await tester.runAsync(_loadFonts) ?? false;
     if (!fonts) {
@@ -163,14 +166,7 @@ void main() {
 
     await tester.tap(find.text(t('Enter link')));
     await frames(5);
-    final keys = generateKeyPair();
-    final link = pairingUri(PairingOffer(
-      server: 'wss://bot.sisct.xyz/v1/link',
-      hostDeviceId: deviceIdFor(keys.publicKey),
-      hostKey: keys.publicKey,
-      code: 'ABCD-1234',
-      name: 'QiYue-Archlinux',
-    ));
+    final link = testPairLink(server: 'wss://bot.sisct.xyz/v2/link', name: 'QiYue-Archlinux');
     await tester.enterText(find.byType(EditableText), link);
     await tester.tap(find.text(t('Connect')));
     await frames(8);

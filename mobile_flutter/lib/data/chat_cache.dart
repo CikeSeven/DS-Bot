@@ -1,4 +1,4 @@
-// Port of mobile/src/team/chat-cache.ts: an LRU of the latest page per chat
+// Port of the Expo app's src/team/chat-cache.ts: an LRU of the latest page per chat
 // (`<computer>:<kind>:<id>`), so returning to a chat shows its messages on the
 // first frame while a fresh read brings anything new. A write carries the key
 // that loaded the page, so a page for one chat never lands under another's key.

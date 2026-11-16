@@ -50,3 +50,4 @@ app.*.map.json
 # IDE files flutter create adds
 *.iml
 .idea/
+/rust/target/

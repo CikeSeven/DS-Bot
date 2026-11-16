@@ -1,32 +1,140 @@
-// What the app needs from a link to one computer. The real one runs over the
-// Relay; the demo answers locally; a background service can proxy one.
+// What the app needs from a link to one computer. The real one is the Rust
+// session (lib/link/rust_link.dart); the demo answers locally; tests fake it.
 import 'dart:async';
 
-import '../link/link.dart';
+import '../link/rust_link.dart';
 
+typedef Unsubscribe = void Function();
+
+/// A feed event from the computer: message, stream, notice, room, live, revision.
+class RpcEvent {
+  const RpcEvent(this.event, this.data);
+
+  final String event;
+  final Object? data;
+}
+
+/// An error that carries the link's or the computer's error code.
+class LinkError implements Exception {
+  LinkError(this.code, this.message);
+
+  final String? code;
+  final String message;
+
+  @override
+  String toString() => code == null ? message : '$message ($code)';
+}
+
+enum LinkPhase {
+  /// No link yet.
+  connecting,
+  online,
+
+  /// This phone lost the Server (its network, or the Server itself); the link waits.
+  reconnecting,
+
+  /// The Server is fine, but the computer is not on it.
+  hostAway,
+
+  /// The computer refused this phone. Final.
+  rejected,
+
+  /// Closed by this phone. Final.
+  closed,
+}
+
+class LinkStatus {
+  const LinkStatus(this.phase, {this.resumed = false, this.attempt = 0, this.code, this.message});
+
+  static const connecting = LinkStatus(LinkPhase.connecting);
+  static const closed = LinkStatus(LinkPhase.closed);
+
+  final LinkPhase phase;
+
+  /// Online: the old link came back, so nothing needs reading again. False
+  /// after a new handshake: the app reads its state again.
+  final bool resumed;
+
+  /// Connecting and reconnecting: failed tries since the Server last answered.
+  final int attempt;
+
+  /// Rejected: why.
+  final String? code;
+  final String? message;
+
+  bool get online => phase == LinkPhase.online;
+
+  bool get ended => phase == LinkPhase.rejected || phase == LinkPhase.closed;
+
+  @override
+  String toString() => '${phase.name}${resumed ? ' (resumed)' : ''}${code == null ? '' : ' $code'}';
+}
+
+/// One computer's link. Opening one returns at once; it connects, reconnects
+/// and resumes by itself until it is closed or the computer refuses the phone.
 abstract class LinkClient {
   Future<Object?> rpc(String method, Object? params, {Duration? timeout});
   Unsubscribe onEvent(void Function(RpcEvent event) handler);
-  Unsubscribe onClose(void Function() handler);
 
-  /// Ask for a liveness reply now; a dead link then closes itself.
-  void probe();
+  /// Where the link stands now; [statuses] tells every change after it.
+  LinkStatus get status;
+  Stream<LinkStatus> get statuses;
+
+  /// The phone moved to another network: the link dials again at once.
+  void networkChanged();
+
+  /// Coming to the foreground checks the link at once. Going to the background
+  /// changes nothing: the link keeps itself up as long as the process runs.
+  void setForeground(bool foreground);
+
   Future<void> close();
 
   /// What the computer called itself in the handshake.
   String? get hostName;
 }
 
-class PhoneIdentity extends DeviceIdentity {
+/// Waits for a new link to come up, as pairing does. Fails when the computer
+/// refuses it or is not on the Server, or when the Server cannot be reached.
+Future<void> linkSettled(LinkClient client, {Duration timeout = const Duration(seconds: 30)}) async {
+  final settled = Completer<void>();
+  void check(LinkStatus status) {
+    if (settled.isCompleted) return;
+    final failure = switch (status.phase) {
+      LinkPhase.online => null,
+      LinkPhase.rejected => LinkError(status.code, status.message ?? 'The computer does not accept this phone.'),
+      LinkPhase.hostAway => LinkError('HOST_OFFLINE', 'The computer is not connected to the Server.'),
+      LinkPhase.closed => LinkError('CLIENT_CLOSED', 'The link was closed.'),
+      LinkPhase.connecting || LinkPhase.reconnecting =>
+        status.attempt >= 4 ? LinkError('SERVER_UNREACHABLE', status.message ?? 'Could not reach the Server.') : null,
+    };
+    if (failure != null) {
+      settled.completeError(failure);
+    } else if (status.online) {
+      settled.complete();
+    }
+  }
+
+  final watch = client.statuses.listen(check);
+  check(client.status);
+  try {
+    await settled.future.timeout(timeout, onTimeout: () => throw LinkError('SERVER_UNREACHABLE', 'Could not reach the Server.'));
+  } finally {
+    unawaited(watch.cancel());
+  }
+}
+
+class PhoneIdentity {
   const PhoneIdentity({
-    required super.deviceId,
-    required super.publicKey,
-    required super.privateKey,
+    required this.deviceId,
+    required this.publicKey,
+    required this.privateKey,
     required this.accessToken,
   });
 
+  final String deviceId;
+  final String publicKey;
+  final String privateKey;
   final String accessToken;
-
   Map<String, Object?> toJson() => {
         'deviceId': deviceId,
         'publicKey': publicKey,
@@ -117,60 +225,6 @@ class SavedComputer {
 }
 
 typedef LinkOpener = Future<LinkClient> Function(SavedComputer computer, PhoneIdentity identity, {String? pairingCode});
-
-/// The encrypted link over the Relay Server.
-class RelayLinkClient implements LinkClient {
-  RelayLinkClient._(this._client, this._secure);
-
-  final RpcClient _client;
-  final SecureTransport _secure;
-
-  /// Opens the link. The pairing code goes only with the first connection.
-  static Future<RelayLinkClient> open(
-    SavedComputer computer,
-    PhoneIdentity identity, {
-    String? pairingCode,
-    String phoneName = 'Phone',
-  }) async {
-    final relay = RelayTransport(
-      computer.server,
-      RelayTransportOptions(
-        deviceId: identity.deviceId,
-        identityKey: identity.publicKey,
-        accessToken: identity.accessToken,
-        targetDeviceId: computer.hostDeviceId,
-      ),
-    );
-    final name = phoneName.length > 64 ? phoneName.substring(0, 64) : phoneName;
-    final secure = SecureTransport(
-      relay,
-      identity,
-      PairedHost(deviceId: computer.hostDeviceId, identityKey: computer.hostKey),
-      hello: HandshakeHello(name: name, pairingCode: pairingCode),
-    );
-    final client = RpcClient(secure);
-    await client.connect();
-    return RelayLinkClient._(client, secure);
-  }
-
-  @override
-  Future<Object?> rpc(String method, Object? params, {Duration? timeout}) => _client.rpc(method, params, timeout: timeout);
-
-  @override
-  Unsubscribe onEvent(void Function(RpcEvent event) handler) => _client.onEvent(handler);
-
-  @override
-  Unsubscribe onClose(void Function() handler) => _client.onClose(handler);
-
-  @override
-  void probe() => _client.probe();
-
-  @override
-  Future<void> close() => _client.close();
-
-  @override
-  String? get hostName => _secure.hostHello?.name;
-}
 
 /// An error from the computer's DS Bot, or a local one with the same shape.
 class BotError implements Exception {

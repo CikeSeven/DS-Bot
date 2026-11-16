@@ -1,5 +1,8 @@
 // The first-run flow: when the welcome page shows, how it leads to pairing, and
 // the pairing page's own stages (refused link, handshake, connected check).
+@Timeout(Duration(minutes: 5))
+library;
+
 import 'dart:async';
 import 'dart:io';
 
@@ -9,7 +12,6 @@ import 'package:dsbot_mobile/app/app_state.dart';
 import 'package:dsbot_mobile/data/store.dart';
 import 'package:dsbot_mobile/features/onboarding/welcome_page.dart';
 import 'package:dsbot_mobile/features/pair/pair_page.dart';
-import 'package:dsbot_mobile/link/link.dart';
 import 'package:dsbot_mobile/shared/shared_data.dart';
 import 'package:dsbot_mobile/ui/i18n.dart';
 import 'package:flutter/widgets.dart';
@@ -17,17 +19,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_link.dart';
 import '../support/platform_mocks.dart';
-
-String _pairLink({String name = 'Desk'}) {
-  final keys = generateKeyPair();
-  return pairingUri(PairingOffer(
-    server: 'wss://bot.example/v1/link',
-    hostDeviceId: deviceIdFor(keys.publicKey),
-    hostKey: keys.publicKey,
-    code: 'ABCD-1234',
-    name: name,
-  ));
-}
+import '../support/rust_link.dart';
 
 Future<AppState> _load(WidgetTester tester, {Map<String, String>? kv, PairOpener? pair}) async {
   // Sessions never open, so nothing in a test reaches for the network.
@@ -59,7 +51,8 @@ Future<void> _end(WidgetTester tester, AppState state) async {
 const _welcomed = {'dsbot.prefs': '{"welcomed":"on"}'};
 
 void main() {
-  setUpAll(() {
+  setUpAll(() async {
+    await loadRustLink();
     SharedData.fromJsonText(File('assets/shared/shared.json').readAsStringSync());
     I18n.loadText(File('assets/i18n/zh.json').readAsStringSync());
   });
@@ -119,7 +112,7 @@ void main() {
   testWidgets('a pairing link skips the welcome page for good', (tester) async {
     final waiting = Completer<LinkClient>();
     final state = await _load(tester, pair: (candidate, identity, code) => waiting.future);
-    state.openPairLink(_pairLink());
+    state.openPairLink(testPairLink());
     await _pump(tester, state);
     await tester.pump(const Duration(milliseconds: 500));
     expect(find.byType(WelcomePage), findsNothing);
@@ -172,7 +165,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Enter link'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(EditableText), _pairLink(name: 'Studio'));
+    await tester.enterText(find.byType(EditableText), testPairLink(name: 'Studio'));
     await tester.tap(find.text('Connect'));
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 100));

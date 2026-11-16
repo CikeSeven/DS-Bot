@@ -7,6 +7,7 @@ import 'app/app.dart';
 import 'app/app_state.dart';
 import 'background/wiring.dart';
 import 'data/demo_link.dart';
+import 'link/rust_link.dart';
 import 'shared/shared_data.dart';
 import 'ui/liquid_glass.dart';
 import 'ui/i18n.dart';
@@ -14,6 +15,7 @@ import 'ui/i18n.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
+  await initRustLink();
   await SharedData.load();
   await I18n.load();
   await LiquidGlassShader.load();

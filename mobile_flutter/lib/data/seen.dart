@@ -1,4 +1,4 @@
-// Port of mobile/src/team/seen.ts: last-read time per (computer, Bot or group),
+// Port of the Expo app's src/team/seen.ts: last-read time per (computer, Bot or group),
 // kept on the phone. A row is unread when its lastAt is newer and its chat is
 // not open. Loaded once at start, so read rows stay read after a restart.
 import 'dart:convert';

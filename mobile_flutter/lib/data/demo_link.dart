@@ -1,4 +1,4 @@
-// Port of mobile/src/team/demo.ts. Demo mode (--dart-define=DSB_DEMO=1): no
+// Port of the Expo app's src/team/demo.ts. Demo mode (--dart-define=DSB_DEMO=1): no
 // computer and no link. The fixture answers with the shapes the real host
 // returns (channel.js `state` view + live(), parts.js `chat` pages).
 import 'dart:async';
@@ -6,7 +6,6 @@ import 'dart:convert';
 import 'dart:math';
 
 import '../api/link_client.dart';
-import '../link/link.dart';
 import 'json.dart';
 
 const demoMode = bool.fromEnvironment('DSB_DEMO');
@@ -35,10 +34,16 @@ class DemoLinkClient implements LinkClient {
   }
 
   @override
-  Unsubscribe onClose(void Function() handler) => () {};
+  LinkStatus get status => const LinkStatus(LinkPhase.online);
 
   @override
-  void probe() {}
+  Stream<LinkStatus> get statuses => const Stream.empty();
+
+  @override
+  void networkChanged() {}
+
+  @override
+  void setForeground(bool foreground) {}
 
   @override
   Future<void> close() async {}

@@ -1,4 +1,4 @@
-// Port of mobile/src/nav/pending.ts: everything the Needs you page lists. The
+// Port of the Expo app's src/nav/pending.ts: everything the Needs you page lists. The
 // count, the badges, the team-list indicators and the page all derive from this
 // one list.
 import 'json.dart';
