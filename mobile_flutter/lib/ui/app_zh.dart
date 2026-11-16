@@ -131,7 +131,6 @@ const appZh = <String, String>{
   'Forget this?': '要忘掉这条吗？',
   'Found on the computer': '电脑上找到的',
   'Full motion': '完整动效',
-  'Group details': '群详情',
   'Hide the log': '隐藏日志',
   'History · {count}': '历史 · {count}',
   'How to get these': '如何获取',
