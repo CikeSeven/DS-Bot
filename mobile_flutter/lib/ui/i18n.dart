@@ -134,32 +134,38 @@ String shortWhen(int ms, [int? nowMs]) {
   return I18n.zh ? '${time.month}/${time.day}' : '${time.month}/${time.day}';
 }
 
-const _toolPhrases = [
-  (r'web_?search|search_?web', 'Searching online'),
-  (r'fetch|browse|browser|web', 'Reading a page'),
-  (r'shell|bash|pwsh|powershell|exec|command|terminal', 'Running shell commands'),
-  (r'^(read|view|cat)\b|read_', 'Opening a file'),
-  (r'write|edit|patch|create_file', 'Writing a file'),
-  (r'recall|memory|remember', 'Checking memory'),
-];
+final _trailingStops = RegExp(r'[\s.。…]+$');
 
-/// What a Bot is doing, worded like the desktop's workPhrase (cells.js).
-String workPhrase(Object? doing) {
-  final map = doing is Map ? doing : (doing is String ? {'tool': doing} : const {});
-  if (map['switching'] == true) return map['folder'] == true ? t('Switching working folder') : t('Moving to a fresh conversation');
-  final said = map['said'] is String && (map['said'] as String).isNotEmpty ? map['said'] as String : map['note'] as String?;
-  final own = said?.replaceAll(RegExp(r'[\s.。…]+$'), '');
-  if (own != null && own.isNotEmpty) return own;
-  final tool = map['tool'];
-  if (tool is! String || tool.isEmpty) return t('Thinking about it');
-  String? matched;
-  for (final (pattern, phrase) in _toolPhrases) {
-    if (RegExp(pattern, caseSensitive: false).hasMatch(tool)) {
-      matched = phrase;
-      break;
-    }
+/// What a Bot says it is doing: its running call's own description, else the
+/// words of the step that made the call. The description comes first because
+/// those words already show as a bubble above.
+String? workNote(Object? doing) {
+  if (doing is! Map) return null;
+  for (final key in const ['note', 'said']) {
+    final value = doing[key];
+    if (value is! String) continue;
+    final text = value.replaceAll(_trailingStops, '').trim();
+    if (text.isNotEmpty) return text;
   }
-  final label = t(matched ?? 'On it');
-  final target = map['target'];
-  return target is String && target.isNotEmpty ? '$label · $target' : label;
+  return null;
+}
+
+/// What a Bot is doing, in its own words. Tools are never named: without a
+/// description it is only thinking or working.
+String workPhrase(Object? doing) {
+  if (doing is String) return doing == 'thinking' ? t('Thinking it over') : t('Working on it');
+  final map = doing is Map ? doing : const {};
+  if (map['switching'] == true) return map['folder'] == true ? t('Switching working folder') : t('Moving to a fresh conversation');
+  final tool = map['tool'];
+  return workNote(map) ?? (tool is String && tool.isNotEmpty ? t('Working on it') : t('Thinking it over'));
+}
+
+/// How long something has run, as the desktop's elapsedLabel: "12s", "3m 4s".
+String elapsedLabel(int ms) {
+  final total = ms < 0 ? 0 : ms ~/ 1000;
+  final hours = total ~/ 3600;
+  final minutes = total ~/ 60 % 60;
+  final seconds = total % 60;
+  if (I18n.zh) return '${hours > 0 ? '$hours 小时 ' : ''}${total >= 60 ? '$minutes 分 ' : ''}$seconds 秒';
+  return '${hours > 0 ? '${hours}h ' : ''}${total >= 60 ? '${minutes}m ' : ''}${seconds}s';
 }
