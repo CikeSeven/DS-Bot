@@ -1,6 +1,12 @@
 // German (de) localization for DS Bot client and DSH settings namespaces.
 
 export const DE = {
+  Recall: 'Zurückziehen',
+  'Recall this message?': 'Diese Nachricht zurückziehen?',
+  'You recalled a message': 'Du hast eine Nachricht zurückgezogen',
+  '{name} changed a file after this message. Recalling leaves it as it is.': '{name} hat nach dieser Nachricht eine Datei geändert. Das Zurückziehen stellt sie nicht wieder her.',
+  '{name} changed {count} files after this message. Recalling leaves them as they are.': '{name} hat nach dieser Nachricht {count} Dateien geändert. Das Zurückziehen stellt sie nicht wieder her.',
+  '{name} may have changed files after this message. Recalling leaves them as they are.': '{name} hat nach dieser Nachricht möglicherweise Dateien geändert. Das Zurückziehen stellt sie nicht wieder her.',
   'Opening…': 'Wird geöffnet…',
   'Still opening…': 'Wird noch geöffnet…',
   "Android beta": "Android-Beta",

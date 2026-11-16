@@ -1,5 +1,5 @@
 import { createElement as h, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
-import { currentPart, isHiddenTurn } from './text.js'
+import { currentPart, isHiddenTurn, recallOf } from './text.js'
 import { CheckIcon, CopyIcon } from './icons.js'
 import { ModelKeyCard, manageModels } from './model-menu.js'
 import { knownFailure } from './diagnostics.js'
@@ -198,6 +198,7 @@ export function FailureCell({ node, sessionId, useRoster, useTurnClock, actions 
   const settled = () => h('div', { className: 'bt-fail', 'data-settled': '', role: 'status' },
     h('div', { className: 'bt-fail-head' }, h('span', { className: 'bt-fail-dot', 'aria-hidden': true }), h('span', { className: 'bt-fail-text' }, text)),
     h(TechnicalDetails, { facts }))
+  if (recallOf(roster, sessionId, node) !== undefined) return null
   if (!current) return settled()
   const official = provider === OFFICIAL
   const canSignIn = typeof actions.signIn === 'function' && actions.canSignIn?.() === true

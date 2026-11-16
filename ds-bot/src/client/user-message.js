@@ -1,13 +1,15 @@
-import { createElement as h, Fragment, useEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import * as ui from '@deepseek-ai/dsh-client-ui-primitives'
 import { imPlatform } from '../shared/im-platforms.js'
 import { mentionSpans } from '../shared/mentions.js'
 import { BotMark } from './mark.js'
-import { CheckIcon, CopyIcon } from './icons.js'
-import { dateLocale, t } from './i18n.js'
+import { CheckIcon, CopyIcon, RecallIcon } from './icons.js'
+import { dateLocale, hostText, t } from './i18n.js'
 import { noHover } from './motion.js'
-import { clockLabel, messageClock } from './text.js'
+import { clockLabel, currentPart, messageClock, recallOf } from './text.js'
 import { useFold } from './fold.js'
+import { CellEmpty } from './cell-empty.js'
 
 // -------------------------------------------------------------------------
 // The user's own messages. DSH draws every "@word" in them as a file reference, and
@@ -87,8 +89,115 @@ const clock = time => (typeof time === 'number' ? new Date(time).toLocaleTimeStr
 export const viaOf = source => (typeof source?.rpcId === 'string' && source.rpcId.startsWith('im:') ? source.rpcId.split(':')[1] : undefined)
 export const ViaTag = ({ via }) => h('span', { className: 'bt-uvia' }, t('via {platform}', { platform: t(imPlatform(via)?.name ?? via) }))
 
+// The Bot whose current part this is, when the user can recall a message of theirs in
+// it: not a group, not an earlier part, not a Bot on a local agent CLI (its CLI keeps
+// its own copy of the chat).
+export function recallTarget(roster, sessionId, data) {
+  const bot = roster.byId[sessionId]
+  if (bot === undefined || roster.roomsById[sessionId] !== undefined || currentPart(bot) !== sessionId || bot.engine !== undefined) return undefined
+  if (data?.source?.kind !== 'user' || !Number.isInteger(data.seq)) return undefined
+  return bot
+}
+
+// What the warning before a recall says about the files the Bot changed after the
+// message; nothing when it changed none.
+export function recallWarning(check, name) {
+  if (check === undefined || check === null) return ''
+  if (check.count === 1) return t('{name} changed a file after this message. Recalling leaves it as it is.', { name })
+  if (check.count > 1) return t('{name} changed {count} files after this message. Recalling leaves them as they are.', { name, count: check.count })
+  return check.maybe ? t('{name} may have changed files after this message. Recalling leaves them as they are.', { name }) : ''
+}
+
+// Where a recalled message was: one quiet line. The turns the recall took away whole
+// also hide the rows DS Bot does not draw itself (a retry note, a command, the cards at
+// a turn's end), scoped to the chat this line is in.
+function RecalledLine({ sessionId, roster, seq }) {
+  const entry = (roster.recalls?.[sessionId] ?? []).find(item => item.seq === seq)
+  const turns = []
+  for (let turn = entry?.opened ? entry.turn : (entry?.turn ?? 0) + 1; entry !== undefined && turn <= entry.last; turn += 1) turns.push(turn)
+  const css = turns.length === 0 ? '' : `[data-chat-flow]:has([data-bt-recall="${seq}"]) :is(${turns.map(turn => `[data-chat-turn="${turn}"]`).join(',')})[data-chat-flow-kind]:not(:has(.bt-recalled)){display:none!important}`
+  return h('div', { className: 'bt-event bt-recalled', 'data-bt-recall': seq },
+    t('You recalled a message'),
+    css ? h('style', null, css) : null)
+}
+
+// Recalling the user's own message: check first, warn when the Bot changed files after
+// it, then recall and put the text back in the message box (after what is already
+// there, so a draft is never lost).
+function useRecall({ bot, sessionId, seq, actions, inputActions, useInput }) {
+  const empty = useInput?.(state => state.draft.trim() === '' && state.attachmentIds.length === 0) !== false
+  const [state, setState] = useState(null)
+  const failed = error => setState({ phase: 'error', error: hostText(error?.message ?? String(error)) })
+  const target = bot === undefined ? undefined : { botId: bot.id, sessionId, seq }
+  const run = async () => {
+    setState({ phase: 'busy' })
+    try {
+      const result = await actions.recallMessage(target)
+      const text = typeof result?.text === 'string' ? result.text : ''
+      if (text !== '' && inputActions !== undefined) {
+        if (empty) inputActions.setDraft(text)
+        else inputActions.insertText(`\n${text}`, inputActions.captureInsertion())
+      }
+      setState(null)
+    } catch (error) { failed(error) }
+  }
+  const start = async () => {
+    if (target === undefined || state?.phase === 'busy' || state?.phase === 'checking') return
+    setState({ phase: 'checking' })
+    try {
+      const check = await actions.recallCheck(target)
+      if (recallWarning(check, bot.name) !== '') setState({ phase: 'confirm', check })
+      else await run()
+    } catch (error) { failed(error) }
+  }
+  return { state, start, confirm: () => void run(), cancel: () => setState(null), busy: state?.phase === 'busy' || state?.phase === 'checking' }
+}
+
+function RecallButton({ recall }) {
+  const label = t('Recall')
+  return h('button', { type: 'button', className: 'bt-tool', 'aria-label': label, title: label, disabled: recall.busy, onClick: () => void recall.start() }, h(RecallIcon))
+}
+
+function RecallNote({ bot, recall }) {
+  const { state, cancel, confirm } = recall
+  if (state?.phase === 'error') return h('div', { className: 'bt-recall-note', role: 'alert', 'data-error': '' }, h('span', null, state.error), h('div', { className: 'bt-recall-actions' }, h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: cancel }, t('Close'))))
+  if (state?.phase !== 'confirm') return null
+  const files = state.check.files ?? []
+  return h('div', { className: 'bt-recall-note', role: 'alertdialog', 'aria-label': t('Recall this message?') },
+    h('span', null, recallWarning(state.check, bot.name)),
+    files.length > 0 ? h('span', { className: 'bt-recall-files' }, files.slice(0, 3).join(t(', ')) + (state.check.count > Math.min(files.length, 3) ? '…' : '')) : null,
+    h('div', { className: 'bt-recall-actions' },
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm', onClick: cancel }, t('Cancel')),
+      h('button', { type: 'button', className: 'bt-soft bt-soft-sm bt-recall-go', onClick: confirm }, t('Recall'))))
+}
+
+// DSH's own bubble, on a DSH without the text projection (dsh-user-bubble.js): drawn as
+// DSH draws it, with the recall button added to its action row, the one with Copy that
+// shows on hover. A warning goes under the bubble.
+export function DshUserMessage(props) {
+  const { Original, node, sessionId, useRoster, actions, inputActions, useInput } = props
+  const roster = useRoster(value => value)
+  const data = node?.data ?? {}
+  const bot = recallTarget(roster, sessionId, data)
+  const recall = useRecall({ bot, sessionId, seq: data.seq, actions, inputActions, useInput })
+  const recalled = recallOf(roster, sessionId, node)
+  const host = useRef(null)
+  const [tools, setTools] = useState(null)
+  useLayoutEffect(() => {
+    const found = host.current?.querySelector('[class*="_userRow"] [class*="_actions"]') ?? null
+    setTools(current => (current === found ? current : found))
+  })
+  if (recalled === 'message') return h(RecalledLine, { sessionId, roster, seq: data.seq })
+  if (recalled === 'cut') return h(CellEmpty)
+  const { Original: _original, ...rest } = props
+  return h('div', { ref: host, className: 'bt-udsh' },
+    h(Original, rest),
+    bot !== undefined && tools !== null ? createPortal(h(RecallButton, { recall }), tools) : null,
+    bot !== undefined && recall.state !== null ? h('div', { className: 'bt-udsh-note' }, h(RecallNote, { bot, recall })) : null)
+}
+
 // A sent message, or one that joined a running turn ("steering").
-export function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill }) {
+export function UserMessageCell({ node, sessionId, useRoster, actions, renderMessageImages, openFile, openSkill, inputActions, useInput }) {
   const roster = useRoster(value => value)
   const data = node.data ?? {}
   const { text, attachments, rest } = contentParts(data.content)
@@ -113,6 +222,15 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
     if (!noHover() || event.target instanceof Element && event.target.closest('a,button,input,textarea,select,pre,code,[role=button],[role=link]')) return
     setToolsOpen(value => !value)
   }
+  const recallBot = recallTarget(roster, sessionId, data)
+  const recall = useRecall({ bot: recallBot, sessionId, seq: data.seq, actions, inputActions, useInput })
+  const recalled = recallOf(roster, sessionId, node)
+  if (recalled === 'message') return h(RecalledLine, { sessionId, roster, seq: data.seq })
+  if (recalled === 'cut') return h(CellEmpty)
+  const tools = [
+    ...(text === '' ? [] : [h(CopyButton, { key: 'copy', text })]),
+    ...(recallBot === undefined ? [] : [h(RecallButton, { key: 'recall', recall })]),
+  ]
   return h('div', { ref: row, className: 'bt-umsg', 'data-steering': steering || undefined },
     h('div', { className: 'bt-ustack' },
       attachments.length > 0 ? h(Attachments, { attachments, renderMessageImages }) : null,
@@ -121,8 +239,9 @@ export function UserMessageCell({ node, sessionId, useRoster, actions, renderMes
         control,
         rest.map((block, index) => (ui.JsonBlock ? h(ui.JsonBlock, { key: index, label: t('Content'), payload: block }) : null))) : null,
       referenceLabels.length > 0 ? h('div', { className: 'bt-urefs' }, t('Referenced {labels}', { labels: referenceLabels.join(t(', ')) })) : null,
-      (sentAt || via) ? h('div', { className: 'bt-utime', title: clockLabel(data.time) }, ...(via ? [h(ViaTag, { key: 'via', via })] : []), sentAt) : null),
-    text === '' ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || undefined }, h(CopyButton, { text })))
+      (sentAt || via) ? h('div', { className: 'bt-utime', title: clockLabel(data.time) }, ...(via ? [h(ViaTag, { key: 'via', via })] : []), sentAt) : null,
+      recallBot === undefined ? null : h(RecallNote, { bot: recallBot, recall })),
+    tools.length === 0 ? null : h('div', { className: 'bt-utools', 'data-open': toolsOpen || recall.state !== null || undefined }, tools))
 }
 
 export const USER_MESSAGE_CSS = `
@@ -142,5 +261,12 @@ export const USER_MESSAGE_CSS = `
 .bt-urefs{font-size:13px;line-height:18px;color:var(--bt-ink-3)}
 .bt-uvia{display:inline-block;margin-right:6px;padding:0 6px;border-radius:6px;background:var(--bt-hover);color:var(--bt-ink-3);font-size:11px;line-height:16px;vertical-align:1px}
 .bt-utools{display:flex;flex:none;gap:2px;opacity:0;visibility:hidden;transition:opacity .12s ease,visibility .12s}
-.bt-umsg:hover .bt-utools,.bt-umsg:focus-within .bt-utools{opacity:1;visibility:visible}
+.bt-umsg:hover .bt-utools,.bt-umsg:focus-within .bt-utools,.bt-umsg:has(.bt-recall-note) .bt-utools{opacity:1;visibility:visible}
+.bt-recall-note{display:flex;flex-direction:column;align-items:flex-end;gap:6px;max-width:min(100%,440px);box-sizing:border-box;padding:10px 12px;border-radius:16px;border:.5px solid var(--bt-line-2);background:var(--bt-card);font-size:13px;line-height:19px;color:var(--bt-ink);text-align:right}
+.bt-recall-note[data-error]{color:var(--bt-danger)}
+.bt-recall-files{font-size:12px;line-height:17px;color:var(--bt-ink-3);overflow-wrap:anywhere}
+.bt-recall-actions{display:flex;gap:6px}
+.bt-recall-go{color:var(--bt-danger)}
+.bt-udsh{display:contents}
+.bt-udsh-note{display:flex;justify-content:flex-end;margin-top:8px}
 `

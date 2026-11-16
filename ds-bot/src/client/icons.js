@@ -60,6 +60,8 @@ export const SmileIcon = lineIcon(['M10 3.5a6.5 6.5 0 1 1 0 13 6.5 6.5 0 0 1 0-1
 export const ReplyIcon = lineIcon(['M8 5L4 9l4 4', 'M4 9h7.5a4.5 4.5 0 0 1 4.5 4.5V15'])
 export const DotsIcon = lineIcon(['M5 10h.01M10 10h.01M15 10h.01'])
 export const CheckIcon = lineIcon(['M4.5 10.5l3.5 3.5 7.5-8'])
+// A message taken back: an arrow that turns round to where it came from.
+export const RecallIcon = lineIcon(['M7.5 4.5L4.5 7.5l3 3', 'M4.5 7.5h7a4 4 0 0 1 0 8H9'])
 export const GlobeIcon = lineIcon(['M10 3a7 7 0 1 0 0 14 7 7 0 0 0 0-14z', 'M3 10h14', 'M10 3c2 2.2 2.9 4.5 2.9 7S12 14.8 10 17c-2-2.2-2.9-4.5-2.9-7S8 5.2 10 3z'])
 export const MoveIcon = lineIcon(['M3.5 10h9.5', 'M9.5 6l4 4-4 4', 'M16.5 4.5v11'])
 export const ArrowDownIcon = lineIcon(['M10 4v12', 'M5 11l5 5 5-5'])

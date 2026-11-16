@@ -1,6 +1,12 @@
 // Spanish (es) localization for DS Bot client and DSH settings namespaces.
 
 export const ES = {
+  Recall: 'Retirar',
+  'Recall this message?': '¿Retirar este mensaje?',
+  'You recalled a message': 'Retiraste un mensaje',
+  '{name} changed a file after this message. Recalling leaves it as it is.': '{name} cambió un archivo después de este mensaje. Retirarlo no lo restaura.',
+  '{name} changed {count} files after this message. Recalling leaves them as they are.': '{name} cambió {count} archivos después de este mensaje. Retirarlo no los restaura.',
+  '{name} may have changed files after this message. Recalling leaves them as they are.': '{name} puede haber cambiado archivos después de este mensaje. Retirarlo no los restaura.',
   'Opening…': 'Abriendo…',
   'Still opening…': 'Sigue abriendo…',
   "Android beta": "Android beta",

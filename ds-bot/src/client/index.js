@@ -55,7 +55,8 @@ import { MEMBER_CSS, MemberDock } from './member-status.js'
 import { TASK_CSS } from './task-board.js'
 import { IM_CSS } from './im-page.js'
 import { GOAL_CSS } from './goal.js'
-import { USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { DshUserMessage, USER_MESSAGE_CSS, UserMessageCell, canDrawUserMessages } from './user-message.js'
+import { installDshUserBubble } from './dsh-user-bubble.js'
 import { QueueDock, QUEUE_CSS } from './queue-dock.js'
 import { PASTE_CSS, PasteDock, PasteGuard } from './paste-card.js'
 import { OPENING_CSS, bindOpeningWait } from './opening.js'
@@ -529,6 +530,9 @@ export function apply(ctx) {
     openChanges: changes => ui.set(state => ({ ...state, changes })),
     closeChanges: () => ui.set(state => ({ ...state, changes: null })),
     changesSummary: changes => call('changes-summary', changes),
+    // Recalling one of the user's messages in a Bot's own chat; the check comes first.
+    recallCheck: target => call('recall-check', target),
+    recallMessage: target => after(call('recall', target)),
     changesDiff: (changes, index) => call('changes-diff', { ...changes, index }),
     learningAnswer: (id, approve) => after(call('learning-answer', { id, approve })),
     // The full-pane overlays sit above the conversation, so opening one must dismiss them
@@ -1186,12 +1190,16 @@ export function apply(ctx) {
     () => ctx.slots.inject('deliverables.file.actions', () => ctx.slots.register({ name: 'deliverables.file.actions', id: 'bot-file-save', locale: 'chat' }, SaveFileAction)),
     // A Bot condenses its conversation without telling anyone; the chat keeps showing
     // every message.
-    () => shadow('conversation.chat.node', { key: 'question-reply', priority: BOT_PRIORITY, locale: 'chat' }, AnsweredReply),
+    () => shadow('conversation.chat.node', { key: 'question-reply', priority: BOT_PRIORITY, locale: 'chat', inject: face }, AnsweredReply),
     () => shadow('conversation.chat.node', { key: 'compaction', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
     // A Bot chat leaves DSH's context lines (tool updates, injected context) out; a Bot
     // message spliced in mid-turn gets an event line from the step that reads it instead.
     () => shadow('conversation.chat.node', { key: 'context', priority: BOT_PRIORITY, locale: 'chat' }, CellEmpty),
-    ...(canDrawUserMessages() ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell)) : []),
+    // Without the text projection DSH keeps its own bubble; DS Bot draws it inside its
+    // own entry, for the recall button in the bubble's action row.
+    ...(canDrawUserMessages()
+      ? ['user', 'steering'].map(key => () => shadow('conversation.chat.node', { key, priority: BOT_PRIORITY, locale: 'chat', inject: face }, UserMessageCell))
+      : [() => ctx.slots.inject('conversation.chat.node', () => installDshUserBubble(ctx.slots, face, DshUserMessage, BOT_PRIORITY))]),
     () => shadow('conversation.input.permission', { priority: BOT_PRIORITY }, Nothing),
     () => shadow('conversation.input.plan', { priority: BOT_PRIORITY }, Nothing),
     // The composer carries no model picker or run statistics; a Bot's model lives

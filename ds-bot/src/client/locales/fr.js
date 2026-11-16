@@ -1,6 +1,12 @@
 // French (fr) localization for DS Bot client and DSH settings namespaces.
 
 export const FR = {
+  "Recall": "Retirer",
+  "Recall this message?": "Retirer ce message ?",
+  "You recalled a message": "Vous avez retiré un message",
+  "{name} changed a file after this message. Recalling leaves it as it is.": "{name} a modifié un fichier après ce message. Le retirer ne le restaure pas.",
+  "{name} changed {count} files after this message. Recalling leaves them as they are.": "{name} a modifié {count} fichiers après ce message. Le retirer ne les restaure pas.",
+  "{name} may have changed files after this message. Recalling leaves them as they are.": "{name} a peut-être modifié des fichiers après ce message. Le retirer ne les restaure pas.",
   "Opening…": "Ouverture…",
   "Still opening…": "Toujours en cours d’ouverture…",
   "Android beta": "Android bêta",
