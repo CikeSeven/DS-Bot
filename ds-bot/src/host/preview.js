@@ -32,13 +32,13 @@ function start() {
   if (worker !== null) return worker
   worker = new Worker(new URL('./preview-worker.js', import.meta.url))
   worker.unref()
-  worker.on('message', ({ id, data, error }) => {
+  worker.on('message', ({ id, error, ...reply }) => {
     const job = waiting.get(id)
     if (job === undefined) return
     waiting.delete(id)
     clearTimeout(job.timer)
     if (error !== undefined) job.reject(new Error(error))
-    else job.resolve(data === null ? null : Buffer.from(data))
+    else job.resolve(reply)
   })
   worker.on('error', error => { failAll(error); stopWorker() })
   worker.on('exit', () => { failAll(new Error('The preview worker stopped')); worker = null })
@@ -51,6 +51,20 @@ function start() {
  */
 export function previewImage(bytes, mime, { edge = PREVIEW_EDGE, quality = QUALITY, always = false } = {}) {
   if (!SHRINKS.has(String(mime).toLowerCase()) || bytes.length < PREVIEW_MIN_BYTES) return Promise.resolve(null)
+  return run({ bytes, mime: String(mime).toLowerCase() === 'image/png' ? 'image/png' : 'image/jpeg', edge, quality, always })
+    .then(({ data }) => data === null ? null : Buffer.from(data))
+}
+
+/**
+ * Up to SHEET_FRAMES frames of an animated GIF in one JPEG (gif-sheet.js), as
+ * `{ data, shown, total }`, or null for a still GIF or one that does not decode.
+ */
+export function gifSheetImage(bytes) {
+  return run({ kind: 'gif-sheet', bytes })
+    .then(({ data, shown, total }) => data === null ? null : { data: Buffer.from(data), shown, total })
+}
+
+function run(message) {
   clearTimeout(idle)
   idle = setTimeout(stopWorker, IDLE_MS)
   idle.unref()
@@ -63,6 +77,6 @@ export function previewImage(bytes, mime, { edge = PREVIEW_EDGE, quality = QUALI
     }, JOB_TIMEOUT_MS)
     timer.unref()
     waiting.set(id, { resolve, reject, timer })
-    start().postMessage({ id, bytes, mime: String(mime).toLowerCase() === 'image/png' ? 'image/png' : 'image/jpeg', edge, quality, always })
+    start().postMessage({ id, ...message })
   })
 }
