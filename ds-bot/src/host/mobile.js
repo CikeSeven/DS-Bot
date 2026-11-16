@@ -50,6 +50,7 @@ export const CAPABILITIES = [
   'message-search',
   'step-detail',
   'thinking-text',
+  'chat-acts',
 ]
 export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
 
@@ -376,6 +377,19 @@ export function install(rt) {
     return { mime: 'image/jpeg', data: small.toString('base64'), preview: true }
   }
 
+  // A screenshot can come back as a file block; its type or its name says it is an image.
+  const isImageBlock = block => block?.attachment !== undefined
+    && (block.type === 'image' || (block.type === 'file'
+      && ((mediaOf(block.attachment) ?? '').startsWith('image/') || /\.(png|jpe?g|gif|webp)$/i.test(block.attachment.name ?? ''))))
+  async function imageBytes(attachments, block) {
+    const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
+    // An image block's ref names no file: DSH reads it as an image, not a file.
+    if (block.type === 'image') return Buffer.from((await attachments.readImage(block.attachment, signal)).data)
+    const chunks = []
+    for await (const chunk of attachments.readFileStream(block.attachment, signal)) chunks.push(chunk)
+    return Buffer.concat(chunks)
+  }
+
   async function image(body) {
     const sessionId = String(body.sessionId ?? '')
     const room = rt.roomOf(sessionId) ?? rt.roomOf(rt.pastOwners.get(sessionId)?.roomId)
@@ -397,13 +411,14 @@ export function install(rt) {
           maxMessages: 500,
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
         for (const record of page.records) {
-          const content = Array.isArray(record.event?.data?.content) ? record.event.data.content : []
+          // A message's photos, and the screenshot a computer step answered with.
+          const data = record.event?.data
+          const content = Array.isArray(data?.content) ? data.content : Array.isArray(data?.message?.content) ? data.message.content : []
           for (const block of content) {
-            if (block?.type === 'image' && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
+            if (isImageBlock(block) && String(block.attachment?.attachmentId) === String(body.attachmentId)) {
               const key = String(block.attachment.attachmentId)
               if (body.preview === true && previews.get(key)) return shown(key)
-              // An image block's ref names no file: DSH reads it as an image, not a file.
-              const bytes = Buffer.from((await attachments.readImage(block.attachment, AbortSignal.timeout(HISTORY_TIMEOUT_MS))).data)
+              const bytes = await imageBytes(attachments, block)
               const mime = mediaOf(block.attachment) ?? 'image/png'
               const { width, height } = block.attachment
               if (body.preview === true && !(Math.max(width, height) <= PREVIEW_EDGE)) {
