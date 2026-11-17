@@ -26,7 +26,10 @@ const mainPortName = 'dsbot-main';
 final FlutterLocalNotificationsPlugin _plugin = FlutterLocalNotificationsPlugin();
 
 const _needs = AndroidNotificationChannel('needs', 'Questions and approvals', importance: Importance.high);
-const _replies = AndroidNotificationChannel('replies', 'Replies and finished work', importance: Importance.defaultImportance);
+// Android keeps the importance a channel was created with, so heads-up for
+// replies needs a new channel id; the old one, which only listed them, goes.
+const _replies = AndroidNotificationChannel('replies-heads-up', 'Replies and finished work', importance: Importance.high);
+const _oldRepliesChannelId = 'replies';
 const serviceChannelId = 'link';
 
 class Notifier {
@@ -59,7 +62,8 @@ class Notifier {
     );
     final android = _plugin.resolvePlatformSpecificImplementation<AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(AndroidNotificationChannel(_needs.id, t('Questions and approvals'), importance: Importance.high));
-    await android?.createNotificationChannel(AndroidNotificationChannel(_replies.id, t('Replies and finished work')));
+    await android?.deleteNotificationChannel(channelId: _oldRepliesChannelId);
+    await android?.createNotificationChannel(AndroidNotificationChannel(_replies.id, t('Replies and finished work'), importance: Importance.high));
     await android?.createNotificationChannel(AndroidNotificationChannel(serviceChannelId, t('Connection'), importance: Importance.low, showBadge: false));
     if (!background) {
       final port = ReceivePort();
@@ -149,8 +153,8 @@ class Notifier {
         android: AndroidNotificationDetails(
           needs ? _needs.id : _replies.id,
           needs ? t('Questions and approvals') : t('Replies and finished work'),
-          importance: needs ? Importance.high : Importance.defaultImportance,
-          priority: needs ? Priority.high : Priority.defaultPriority,
+          importance: Importance.high,
+          priority: Priority.high,
           category: needs ? AndroidNotificationCategory.reminder : AndroidNotificationCategory.message,
           styleInformation: BigTextStyleInformation(body),
           groupKey: jStr(notice, 'roomId') ?? jStr(notice, 'botId'),
