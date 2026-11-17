@@ -24,6 +24,7 @@ import '../../ui/widgets.dart';
 import '../manage/work_pages.dart';
 import 'act_row.dart';
 import 'exchange_page.dart';
+import 'failure_card.dart';
 import 'media.dart';
 import 'view_card.dart';
 
@@ -42,6 +43,7 @@ class ChatItemView extends StatelessWidget {
     this.onDiscard,
     this.admin,
     this.botId,
+    this.latest = false,
   });
 
   final ChatRow row;
@@ -58,6 +60,9 @@ class ChatItemView extends StatelessWidget {
 
   /// The Bot whose own chat this is; a line about another Bot opens their exchange.
   final String? botId;
+
+  /// Whether this is the newest row of the chat.
+  final bool latest;
 
   Json get item => row.item;
 
@@ -100,6 +105,8 @@ class ChatItemView extends StatelessWidget {
         return Padding(padding: const EdgeInsets.symmetric(vertical: 4), child: ViewCard(sessionId: sessionId, title: jStr(item, 'title'), root: view, readOnly: true));
       case 'act':
         return ActRow(item: item, team: team, sessionId: sessionId, maxWidth: botMax);
+      case 'failed':
+        return FailureCard(item: item, team: team, botId: botId ?? team.botOfSession(sessionId)?.id, latest: latest, maxWidth: botMax);
       case 'answer':
         return _answer(context, p);
       case 'user':

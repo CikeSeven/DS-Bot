@@ -9,6 +9,7 @@ import '../../app/app_state.dart';
 import '../../app/nav.dart';
 import '../../data/json.dart';
 import '../../data/pending.dart';
+import '../../data/turn_failure.dart';
 import '../../ui/avatar.dart';
 import '../../ui/glass.dart';
 import '../../ui/i18n.dart';
@@ -172,6 +173,7 @@ class _NoticeRow extends StatelessWidget {
       'question' => (AppIcon.question, p.accent),
       'approval' => (AppIcon.shield, Palette.star),
       'done' => (AppIcon.check, Palette.green),
+      'failed' => (AppIcon.alert, Palette.danger),
       'view' => (AppIcon.board, p.accent),
       'group' => (AppIcon.people, p.ink2),
       _ => (AppIcon.chat, p.ink2),
@@ -213,7 +215,7 @@ class _NoticeRow extends StatelessWidget {
                 if (time != null) Text(shortWhen(time), style: TypeScale.caption.copyWith(color: p.ink3)),
               ]),
               const SizedBox(height: 2),
-              Text(jStr(notice, 'text') ?? '', maxLines: 3, overflow: TextOverflow.ellipsis, style: TypeScale.small.copyWith(color: p.ink2)),
+              Text(kind == 'failed' ? failureNoticeText(notice, team) : jStr(notice, 'text') ?? '', maxLines: 3, overflow: TextOverflow.ellipsis, style: TypeScale.small.copyWith(color: p.ink2)),
             ]),
           ),
         ]),
