@@ -19,7 +19,16 @@ import omggif from 'omggif'
 // each Session's page reads, oldest first.
 function start(config = {}) {
   const home = mkdtempSync(join(tmpdir(), 'ds-bot-mobile-'))
-  const ctx = fakeContext({ services: { attachments: fakeAttachments() } })
+  const uploads = []
+  const fileUploads = {
+    async uploadStream({ sessionId, data, name }) {
+      const chunks = []
+      for await (const chunk of data) chunks.push(chunk)
+      uploads.push({ sessionId, name, bytes: Buffer.concat(chunks) })
+      return { receiptId: `rcpt-${uploads.length}` }
+    },
+  }
+  const ctx = fakeContext({ services: { attachments: fakeAttachments(), fileUploads } })
   const sent = []
   const history = {}
   const inboxes = new Map()
@@ -85,7 +94,7 @@ function start(config = {}) {
     await ctx.dispose()
     rmSync(home, { recursive: true, force: true, maxRetries: 5 })
   }
-  return { ctx, rt, call, emit, relay, answer, sent, history, routes, stop }
+  return { ctx, rt, call, emit, relay, answer, sent, uploads, history, routes, stop }
 }
 
 const settle = () => new Promise(resolve => setTimeout(resolve, 20))
@@ -186,6 +195,17 @@ test('roomItems turns a group Session into speaker-attributed items, oldest firs
     { id: '7', kind: 'event', event: 'schedule', text: 'Daily standup', time: 23 },
   ])
   assert.deepEqual(open, [{ callId: 'r2', at: 7 }])
+})
+
+test('roomItems shows a GIF sent to a group as the GIF itself', () => {
+  const sheet = { attachmentId: 'sha256:sheet', mediaType: 'image/jpeg', bytes: 900, width: 14, height: 14 }
+  const gif = { attachmentId: 'sha256:gif', name: 'animated.gif', bytes: 4000 }
+  const { items } = roomItems([{ seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [
+    { type: 'text', text: sheetNote(3, 3, true) },
+    { type: 'image', attachment: sheet },
+    { type: 'file', attachment: gif },
+  ] } }])
+  assert.deepEqual(items, [{ id: '1', kind: 'user', text: '', images: 1, imageRefs: [{ attachmentId: 'sha256:gif', mime: 'image/gif', name: 'animated.gif' }], time: 1 }])
 })
 
 test('a group round logs notices a returning client reads back, and the feed says the group changed', async (t) => {
@@ -381,21 +401,58 @@ test('a phone stages photos one by one, then send puts them in one message with 
   await stop()
 })
 
-test('a phone that stages an animated GIF sends a note and one picture of its frames', async () => {
-  const { call, sent, stop } = start()
-  const { chief } = await team(call)
+function animatedGif() {
   const buf = Buffer.alloc(4096)
   const writer = new omggif.GifWriter(buf, 4, 4, { palette: [0xffffff, 0xff0000], loop: 0 })
   for (const fill of [1, 0, 1]) writer.addFrame(0, 0, 4, 4, Array.from({ length: 16 }, () => fill), { delay: 10 })
-  const gif = buf.subarray(0, writer.end()).toString('base64')
-  const id = (await call('stage-image', { mediaType: 'image/gif', data: gif })).value.id
+  return Buffer.from(buf.subarray(0, writer.end()))
+}
+
+test('a phone that stages an animated GIF sends a note, one picture of its frames and the GIF itself', async () => {
+  const { rt, call, sent, uploads, stop } = start()
+  const { chief } = await team(call)
+  const gif = animatedGif()
+  const id = (await call('stage-image', { mediaType: 'image/gif', data: gif.toString('base64') })).value.id
   assert.equal((await call('send', { sessionId: chief, text: 'lol', images: [id] })).value, true)
-  const [text, note, picture] = sent.at(-1).prompt.content
+  const { prompt } = sent.at(-1)
+  const [text, note, picture, file] = prompt.content
   assert.deepEqual(text, { type: 'text', text: 'lol' })
-  assert.deepEqual(note, { type: 'text', text: sheetNote(3, 3) })
+  assert.deepEqual(note, { type: 'text', text: sheetNote(3, 3, true) })
   assert.equal(picture.type, 'image')
   assert.equal(picture.mediaType, 'image/jpeg')
   assert.equal(jpeg.decode(Buffer.from(picture.data, 'base64')).width, 4 * 2 + 6)
+  // The GIF itself is kept in the chat's current Session, which the prompt goes to.
+  assert.deepEqual(file, { type: 'file', receiptId: 'rcpt-1' })
+  assert.deepEqual(uploads, [{ sessionId: rt.chatOf(chief), name: 'animated.gif', bytes: gif }])
+  assert.equal(prompt.sessionId, rt.chatOf(chief))
+  await stop()
+})
+
+test('a sent GIF shows in the chat as the GIF itself, and the phone reads its bytes', async () => {
+  const { ctx, call, history, stop } = start()
+  const { chief } = await team(call)
+  const sessionId = (await call('state', {})).value.bots.find(bot => bot.id === chief).sessionId
+  const attachments = ctx.get('attachments')
+  const gif = animatedGif()
+  const sheet = await attachments.saveImage({ data: Buffer.from('JPEG sheet'), mediaType: 'image/jpeg', width: 14, height: 14 })
+  const file = await attachments.saveFile({ data: gif, name: 'animated.gif' })
+  history[sessionId] = [
+    { seq: 1, time: 1, type: 'user/message', data: { source: { kind: 'user' }, content: [
+      { type: 'text', text: 'lol' },
+      { type: 'text', text: sheetNote(3, 3, true) },
+      { type: 'image', attachment: sheet },
+      { type: 'file', attachment: file },
+    ] } },
+  ]
+  const item = (await call('chat', { botId: chief })).value.items.find(entry => entry.kind === 'user')
+  assert.equal(item.text, 'lol')
+  assert.equal(item.images, 1)
+  assert.deepEqual(item.imageRefs, [{ attachmentId: file.attachmentId, mime: 'image/gif', name: 'animated.gif' }])
+  for (const preview of [true, false]) {
+    const shown = (await call('image', { sessionId, attachmentId: file.attachmentId, preview })).value
+    assert.equal(shown.mime, 'image/gif')
+    assert.deepEqual(Buffer.from(shown.data, 'base64'), gif)
+  }
   await stop()
 })
 

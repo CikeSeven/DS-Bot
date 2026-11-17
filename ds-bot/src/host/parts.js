@@ -23,6 +23,7 @@ import { cleanText } from './diagnostics.js'
 import { assembleLlmStream } from './models.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
+import { phoneBlocks } from './pictures.js'
 import { recalledAt } from './recall.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
@@ -1843,7 +1844,7 @@ export function install(rt) {
       if (event.type !== 'user/message') continue
       const source = event.data?.source
       if (source?.kind === 'user') {
-        const content = Array.isArray(event.data.content) ? event.data.content : []
+        const content = phoneBlocks(event.data.content)
         const imageRefs = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
           .map(block => ({ attachmentId: block.attachment.attachmentId, mime: block.attachment.mediaType ?? block.attachment.mime ?? block.attachment.mimeType, name: block.attachment.name }))
         const images = content.filter(block => block?.type === 'image').length

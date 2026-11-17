@@ -3,7 +3,8 @@ import { test } from 'node:test'
 import jpeg from 'jpeg-js'
 import omggif from 'omggif'
 import { gifSheet, pickFrames } from '../src/host/gif-sheet.js'
-import { imageTypeOf, pictureParts, sheetNote } from '../src/host/pictures.js'
+import { imageTypeOf, phoneBlocks, pictureParts, promptParts, sheetNote } from '../src/host/pictures.js'
+import { sentBlocks, sentText } from '../src/shared/sent-gif.js'
 
 const PALETTE = [0xffffff, 0xff0000, 0x00ff00, 0x0000ff]
 
@@ -98,9 +99,52 @@ test('pictureParts trusts the bytes over the declared type and turns an animated
   assert.deepEqual(await pictureParts({ mediaType: 'image/jpeg', data: still }), [{ type: 'image', mediaType: 'image/gif', data: still }])
   const unknown = Buffer.from('not an image').toString('base64')
   assert.deepEqual(await pictureParts({ mediaType: 'image/png', data: unknown }), [{ type: 'image', mediaType: 'image/png', data: unknown }])
-  const parts = await pictureParts({ mediaType: 'image/jpeg', data: makeGif([1, 2, 3]).toString('base64') })
-  assert.deepEqual(parts[0], { type: 'text', text: sheetNote(3, 3) })
-  assert.equal(parts[1].type, 'image')
-  assert.equal(parts[1].mediaType, 'image/jpeg')
-  assert.equal(imageTypeOf(Buffer.from(parts[1].data, 'base64')), 'image/jpeg')
+  const gif = makeGif([1, 2, 3])
+  const [part] = await pictureParts({ mediaType: 'image/jpeg', data: gif.toString('base64') })
+  assert.equal(part.type, 'gif')
+  assert.deepEqual(part.bytes, gif)
+  assert.equal(part.shown, 3)
+  assert.equal(part.total, 3)
+  assert.equal(imageTypeOf(Buffer.from(part.sheet, 'base64')), 'image/jpeg')
+})
+
+test('promptParts sends an animated GIF as a note, its sheet and the GIF itself as a file', async () => {
+  const gif = makeGif([1, 2, 3])
+  const content = [{ type: 'text', text: 'lol' }, ...await pictureParts({ mediaType: 'image/gif', data: gif.toString('base64') })]
+  const uploads = []
+  const parts = await promptParts(content, async (bytes, name) => {
+    uploads.push({ bytes, name })
+    return 'rcpt-1'
+  })
+  assert.deepEqual(uploads, [{ bytes: gif, name: 'animated.gif' }])
+  assert.deepEqual(parts[0], { type: 'text', text: 'lol' })
+  assert.deepEqual(parts[1], { type: 'text', text: sheetNote(3, 3, true) })
+  assert.match(parts[1].text, /The GIF itself is the file after it\.$/)
+  assert.equal(parts[2].type, 'image')
+  assert.equal(parts[2].mediaType, 'image/jpeg')
+  assert.deepEqual(parts[3], { type: 'file', receiptId: 'rcpt-1' })
+  // A DSH that kept no file: the sheet alone, and the note does not speak of a file.
+  const alone = await promptParts(content, async () => undefined)
+  assert.equal(alone.length, 3)
+  assert.deepEqual(alone[1], { type: 'text', text: sheetNote(3, 3) })
+})
+
+test('a sent GIF shows as the GIF itself, without the note and the sheet written for the model', () => {
+  const sheet = { type: 'image', attachment: { attachmentId: 'sha256:sheet', mediaType: 'image/jpeg', bytes: 900, width: 22, height: 22 } }
+  const file = { type: 'file', attachment: { attachmentId: 'sha256:gif', name: 'animated.gif', bytes: 4000 } }
+  const content = [{ type: 'text', text: 'lol' }, { type: 'text', text: sheetNote(4, 7, true) }, sheet, file]
+  assert.deepEqual(sentBlocks(content), [{ type: 'text', text: 'lol' }, file])
+  assert.deepEqual(phoneBlocks(content), [
+    { type: 'text', text: 'lol' },
+    { type: 'image', attachment: { attachmentId: 'sha256:gif', name: 'animated.gif', bytes: 4000, mediaType: 'image/gif' } },
+  ])
+  // Too large for the phone's link: the sheet stands in for it.
+  const large = { type: 'file', attachment: { ...file.attachment, bytes: 3 * 1024 * 1024 } }
+  assert.deepEqual(phoneBlocks([{ type: 'text', text: sheetNote(4, 7, true) }, sheet, large]), [sheet])
+  // Sent before the GIF came along, or without it: the note goes, the sheet stays.
+  assert.deepEqual(sentBlocks([{ type: 'text', text: sheetNote(4, 7) }, sheet]), [sheet])
+  const plain = [{ type: 'text', text: 'hi' }, sheet]
+  assert.equal(sentBlocks(plain), plain)
+  assert.equal(sentText(`lol\n${sheetNote(4, 7)}`), 'lol')
+  assert.equal(sentText('lol\nThis picture is mine.'), 'lol\nThis picture is mine.')
 })
