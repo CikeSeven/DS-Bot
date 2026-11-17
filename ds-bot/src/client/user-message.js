@@ -1,8 +1,9 @@
-import { createElement as h, Fragment, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { createElement as h, Fragment, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import * as ui from '@deepseek-ai/dsh-client-ui-primitives'
 import { imPlatform } from '../shared/im-platforms.js'
 import { mentionSpans } from '../shared/mentions.js'
+import { sentBlocks } from '../shared/sent-gif.js'
 import { BotMark } from './mark.js'
 import { CheckIcon, CopyIcon, RecallIcon } from './icons.js'
 import { dateLocale, hostText, t } from './i18n.js'
@@ -24,7 +25,7 @@ export function contentParts(content) {
   const texts = []
   const attachments = []
   const rest = []
-  for (const block of Array.isArray(content) ? content : []) {
+  for (const block of sentBlocks(content)) {
     if (block?.type === 'text' && typeof block.text === 'string') texts.push(block.text)
     else if ((block?.type === 'image' || block?.type === 'file') && block.attachment !== undefined) attachments.push(block)
     else rest.push(block)
@@ -183,6 +184,12 @@ export function DshUserMessage(props) {
   const recalled = recallOf(roster, sessionId, node)
   const host = useRef(null)
   const [tools, setTools] = useState(null)
+  // An animated GIF sent from the phone or an IM chat shows as the GIF's file, without
+  // the note and the sheet of frames written for the model.
+  const shown = useMemo(() => {
+    const content = Array.isArray(data.content) ? sentBlocks(data.content) : data.content
+    return content === data.content ? node : { ...node, data: { ...data, content } }
+  }, [node, data])
   useLayoutEffect(() => {
     const found = host.current?.querySelector('[class*="_userRow"] [class*="_actions"]') ?? null
     setTools(current => (current === found ? current : found))
@@ -191,7 +198,7 @@ export function DshUserMessage(props) {
   if (recalled === 'cut') return h(CellEmpty)
   const { Original: _original, ...rest } = props
   return h('div', { ref: host, className: 'bt-udsh' },
-    h(Original, rest),
+    h(Original, { ...rest, node: shown }),
     bot !== undefined && tools !== null ? createPortal(h(RecallButton, { recall }), tools) : null,
     bot !== undefined && recall.state !== null ? h('div', { className: 'bt-udsh-note' }, h(RecallNote, { bot, recall })) : null)
 }

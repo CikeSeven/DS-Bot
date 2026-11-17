@@ -4,7 +4,7 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { install as installBtw } from './btw.js'
 import { install as installSide } from './side.js'
 import { handoffReply, questionReply, viewReply } from './parts.js'
-import { imageTypeOf, pictureParts } from './pictures.js'
+import { imageTypeOf, pictureParts, promptParts } from './pictures.js'
 import { validateViewAnswer } from 'deep-view/core'
 import { COLORS, EXTRA_COLORS, ROUTE } from './constants.js'
 
@@ -957,8 +957,22 @@ export function install(rt) {
       requestId,
       sessionId,
       mode: 'queue',
-      content,
+      content: await promptParts(content, (bytes, name) => uploadFor(sessionId, bytes, name)),
     }, AbortSignal.timeout(30_000))
+  }
+
+  // A file for the next prompt to `sessionId`, as the receipt the prompt names it by;
+  // undefined when this DSH takes no uploads or could not keep it.
+  async function uploadFor(sessionId, bytes, name) {
+    const uploads = ctx.get?.('fileUploads')
+    if (typeof uploads?.uploadStream !== 'function') return undefined
+    try {
+      const data = (async function* () { yield new Uint8Array(bytes) })()
+      return (await uploads.uploadStream({ sessionId, data, name })).receiptId
+    } catch (error) {
+      rt.warn?.('ds-bot: a sent file could not be kept: %s', error?.message ?? error)
+      return undefined
+    }
   }
 
   // A user message with files a phone uploaded. DSH's prompt takes files only as

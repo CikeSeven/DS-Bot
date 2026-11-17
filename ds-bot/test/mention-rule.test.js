@@ -6,6 +6,7 @@ import { build } from 'esbuild'
 import { mentionSpans, nameProblem, referenceSpans, speakerOf } from '../src/shared/mentions.js'
 import { mentionsIn } from '../src/host/groups.js'
 import { linkMentions, MENTION_ORIGIN } from '../src/client/text.js'
+import { sheetNote } from '../src/shared/sent-gif.js'
 
 const bots = [{ id: 'a', name: '新 Bot' }, { id: 'b', name: '新 Bot 2' }, { id: 'c', name: 'Chief' }, { id: 'k', name: 'K' }]
 
@@ -19,12 +20,12 @@ const module = { exports: {} }
 runInNewContext(bundle.outputFiles[0].text, {
   module, exports: module.exports,
   require: (name) => {
-    const platform = { react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useMemo: make => make(), useCallback: fn => fn, useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),  createElement: () => null, Fragment: 'fragment', useState: initial => [initial, () => {}], useEffect: () => {}, useRef: initial => ({ current: initial }), useLayoutEffect: () => {}, useId: () => 'id' }, 'react-dom': {}, '@deepseek-ai/dsh-client-ui-primitives': {} }
+    const platform = { react: { createContext: (initial) => { const ctx = { value: initial }; ctx.Provider = ({ value, children }) => { ctx.value = value; return children }; return ctx }, useContext: ctx => ctx.value, useMemo: make => make(), useCallback: fn => fn, useSyncExternalStore: (subscribe, getSnapshot) => getSnapshot(),  createElement: (type, props, ...children) => ({ type, props, children }), Fragment: 'fragment', useState: initial => [initial, () => {}], useEffect: () => {}, useRef: initial => ({ current: initial }), useLayoutEffect: () => {}, useId: () => 'id' }, 'react-dom': {}, '@deepseek-ai/dsh-client-ui-primitives': {} }
     if (!(name in platform)) throw new Error(`no platform module ${name}`)
     return platform[name]
   },
 })
-const { userTextParts, mentionableBots, canDrawUserMessages, contentParts } = module.exports
+const { userTextParts, mentionableBots, canDrawUserMessages, contentParts, DshUserMessage } = module.exports
 const plain = value => JSON.parse(JSON.stringify(value))
 
 const called = text => mentionSpans(text, bots).map(span => (span.all ? '@all' : span.bot.name))
@@ -98,4 +99,20 @@ test('a group log line of a Bot named like the user never reads as the user', ()
   assert.equal(speakerOf({ who: 'User', botId: 'b', text: 'hi' }), 'Bot "User"')
   assert.equal(speakerOf({ who: 'you', botId: 'b', text: 'hi' }), 'Bot "you"')
   assert.equal(speakerOf({ who: 'Writer', botId: 'b', text: 'hi' }), 'Writer')
+})
+
+test('the user bubble shows a sent GIF as its file, without the note and the sheet written for the model', () => {
+  const sheet = { type: 'image', attachment: { attachmentId: 'sha256:sheet', mediaType: 'image/jpeg' } }
+  const file = { type: 'file', attachment: { attachmentId: 'sha256:gif', name: 'animated.gif', bytes: 10 } }
+  const content = [{ type: 'text', text: 'lol' }, { type: 'text', text: sheetNote(4, 7, true) }, sheet, file]
+  const { text, attachments } = contentParts(content)
+  assert.equal(text, 'lol')
+  assert.deepEqual(plain(attachments), [file])
+  // DSH's own bubble gets the same blocks; a message without a note keeps its node.
+  const roster = { byId: {}, roomsById: {}, recalls: {} }
+  const drawn = node => DshUserMessage({ Original: 'dsh', node, sessionId: 's1', useRoster: pick => pick(roster) }).children[0].props.node
+  const node = { kind: 'user', data: { seq: 3, source: { kind: 'user' }, content } }
+  assert.deepEqual(plain(drawn(node).data.content), [{ type: 'text', text: 'lol' }, file])
+  const plainNode = { kind: 'user', data: { seq: 4, source: { kind: 'user' }, content: [{ type: 'text', text: 'hi' }] } }
+  assert.equal(drawn(plainNode), plainNode)
 })

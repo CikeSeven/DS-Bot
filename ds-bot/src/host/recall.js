@@ -5,6 +5,7 @@
 // view, stands in for the recalled range. Files the Bot changed stay as they are.
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { phoneBlocks } from './pictures.js'
 import { textOf } from './text.js'
 
 // The placeholder's source: a kind of its own, so no reader of `bot` messages takes it
@@ -164,7 +165,7 @@ export function install(rt) {
       await rt.save()
       await rt.dropIndexedLines?.(part, body.seq, cut.until)
       rt.publishFeed?.('recall', { botId: bot.id, sessionId: part, seq: body.seq, until: cut.until })
-      const content = Array.isArray(event.data?.content) ? event.data.content : []
+      const content = phoneBlocks(event.data?.content)
       return { text: textOf(content), images: content.filter(block => block?.type === 'image').length, until: cut.until }
     } finally {
       running.delete(part)

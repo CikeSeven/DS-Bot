@@ -26655,6 +26655,27 @@ var IM_PLATFORMS = [
 var imPlatform = (id) => IM_PLATFORMS.find((platform) => platform.id === id);
 var viaOf = (source) => typeof source?.rpcId === "string" && source.rpcId.startsWith("im:") ? source.rpcId.split(":")[1] : void 0;
 
+// src/shared/sent-gif.js
+var NOTE = /^This picture is an animated GIF, shown as \d+ of its \d+ frames in order: left to right, then top to bottom\.(?: The GIF itself is the file after it\.)?$/;
+var sheetNote = (shown, total, file = false) => `This picture is an animated GIF, shown as ${shown} of its ${total} frames in order: left to right, then top to bottom.${file ? " The GIF itself is the file after it." : ""}`;
+var isNote = (block) => block?.type === "text" && typeof block.text === "string" && NOTE.test(block.text.trim());
+var isGifFile = (block) => block?.type === "file" && /\.gif$/i.test(String(block.attachment?.name ?? ""));
+function sentBlocks(content, gif = (file) => file) {
+  const blocks = Array.isArray(content) ? content : [];
+  if (!blocks.some(isNote)) return blocks;
+  const shown = [];
+  for (let at = 0; at < blocks.length; at += 1) {
+    const block = blocks[at];
+    if (!isNote(block)) shown.push(block);
+    else if (blocks[at + 1]?.type === "image" && isGifFile(blocks[at + 2])) {
+      shown.push(gif(blocks[at + 2], blocks[at + 1]));
+      at += 2;
+    }
+  }
+  return shown;
+}
+var sentText = (text) => String(text ?? "").split("\n").filter((line) => !NOTE.test(line.trim())).join("\n").trim();
+
 // src/client/user-message.js
 var import_react32 = require("react");
 var import_react_dom3 = require("react-dom");
@@ -26664,7 +26685,7 @@ function contentParts(content) {
   const texts2 = [];
   const attachments = [];
   const rest = [];
-  for (const block of Array.isArray(content) ? content : []) {
+  for (const block of sentBlocks(content)) {
     if (block?.type === "text" && typeof block.text === "string") texts2.push(block.text);
     else if ((block?.type === "image" || block?.type === "file") && block.attachment !== void 0) attachments.push(block);
     else rest.push(block);
@@ -26813,6 +26834,10 @@ function DshUserMessage(props) {
   const recalled = recallOf(roster, sessionId, node);
   const host = (0, import_react32.useRef)(null);
   const [tools, setTools] = (0, import_react32.useState)(null);
+  const shown = (0, import_react32.useMemo)(() => {
+    const content = Array.isArray(data.content) ? sentBlocks(data.content) : data.content;
+    return content === data.content ? node : { ...node, data: { ...data, content } };
+  }, [node, data]);
   (0, import_react32.useLayoutEffect)(() => {
     const found = host.current?.querySelector('[class*="_userRow"] [class*="_actions"]') ?? null;
     setTools((current) => current === found ? current : found);
@@ -26823,7 +26848,7 @@ function DshUserMessage(props) {
   return (0, import_react32.createElement)(
     "div",
     { ref: host, className: "bt-udsh" },
-    (0, import_react32.createElement)(Original, rest),
+    (0, import_react32.createElement)(Original, { ...rest, node: shown }),
     bot !== void 0 && tools !== null ? (0, import_react_dom3.createPortal)((0, import_react32.createElement)(RecallButton, { recall }), tools) : null,
     bot !== void 0 && recall.state !== null ? (0, import_react32.createElement)("div", { className: "bt-udsh-note" }, (0, import_react32.createElement)(RecallNote, { bot, recall })) : null
   );

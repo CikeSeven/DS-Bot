@@ -1,6 +1,14 @@
 // Pictures the user sends from the phone or an IM chat, made ready for the model. The
-// type comes from the bytes, and an animated GIF goes as a sheet of its frames.
+// type comes from the bytes, and an animated GIF goes as a sheet of its frames, with the
+// GIF itself as a file the Bot can open.
 import { gifSheetImage } from './preview.js'
+import { sentBlocks, sheetNote } from '../shared/sent-gif.js'
+
+export { sheetNote }
+
+const GIF_NAME = 'animated.gif'
+// A larger GIF shows as its sheet on the phone: a link message carries about 3 MB.
+const GIF_SHOWN_MAX = 2 * 1024 * 1024
 
 const ascii = (bytes, start, end) => Buffer.from(bytes.subarray(start, end)).toString('latin1')
 
@@ -15,26 +23,47 @@ export function imageTypeOf(bytes) {
   return undefined
 }
 
-export const sheetNote = (shown, total) =>
-  `This picture is an animated GIF, shown as ${shown} of its ${total} frames in order: left to right, then top to bottom.`
-
 /**
  * The message parts for one picture in base64 `data`: an image of the type its bytes
  * have (the declared `mediaType` only when the bytes do not tell), or for an animated
- * GIF a note and one picture of its frames. A GIF that cannot be made into frames
- * goes as it is, and DSH keeps its first frame.
+ * GIF one `{ type: 'gif' }` part that promptParts turns into what DSH takes. A GIF that
+ * cannot be made into frames goes as it is, and DSH keeps its first frame.
  */
 export async function pictureParts({ mediaType, data }) {
   const bytes = Buffer.from(data, 'base64')
   const type = imageTypeOf(bytes) ?? mediaType
   if (type === 'image/gif') {
     const sheet = await gifSheetImage(bytes).catch(() => null)
-    if (sheet !== null) {
-      return [
-        { type: 'text', text: sheetNote(sheet.shown, sheet.total) },
-        { type: 'image', mediaType: 'image/jpeg', data: sheet.data.toString('base64') },
-      ]
-    }
+    if (sheet !== null) return [{ type: 'gif', bytes, sheet: sheet.data.toString('base64'), shown: sheet.shown, total: sheet.total }]
   }
   return [{ type: 'image', mediaType: type, data }]
 }
+
+/**
+ * The prompt parts DSH takes for `content`: each animated GIF from pictureParts becomes a
+ * note, the sheet of its frames and the GIF itself as a file. `upload(bytes, name)`
+ * answers with the stored file's receipt id, or undefined when the file could not be
+ * kept; the GIF then goes as its sheet alone.
+ */
+export async function promptParts(content, upload) {
+  const parts = []
+  for (const block of content) {
+    if (block?.type !== 'gif') {
+      parts.push(block)
+      continue
+    }
+    const receiptId = await upload(block.bytes, GIF_NAME)
+    parts.push(
+      { type: 'text', text: sheetNote(block.shown, block.total, receiptId !== undefined) },
+      { type: 'image', mediaType: 'image/jpeg', data: block.sheet },
+      ...(receiptId === undefined ? [] : [{ type: 'file', receiptId }]),
+    )
+  }
+  return parts
+}
+
+// A user message's blocks as the phone draws them: an animated GIF as the GIF itself, a
+// picture, unless it is too large for the link.
+export const phoneBlocks = content => sentBlocks(content, (file, sheet) => (file.attachment.bytes <= GIF_SHOWN_MAX
+  ? { type: 'image', attachment: { ...file.attachment, mediaType: 'image/gif' } }
+  : sheet))

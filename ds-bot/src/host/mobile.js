@@ -10,6 +10,7 @@ import { isAbsolute, resolve } from 'node:path'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, SOURCE_KIND } from './constants.js'
 import { linkPath } from './links.js'
 import { PREVIEW_EDGE, previewImage } from './preview.js'
+import { phoneBlocks } from './pictures.js'
 import { relayRange } from '../shared/group-replies.js'
 import { textOf } from './text.js'
 import { hourKeys } from './usage.js'
@@ -124,9 +125,10 @@ export function roomItems(events, rowsOf = () => []) {
       const source = event.data?.source
       const content = Array.isArray(event.data?.content) ? event.data.content : []
       if (source?.kind === 'user') {
-        const imageBlocks = content.filter(block => block?.type === 'image' && block.attachment !== undefined)
+        const shown = phoneBlocks(content)
+        const imageBlocks = shown.filter(block => block?.type === 'image' && block.attachment !== undefined)
         const imageRefs = imageBlocks.map(block => ({ attachmentId: block.attachment.attachmentId, mime: mediaOf(block.attachment), name: block.attachment.name }))
-        items.push({ id: `${seq}`, kind: 'user', text: textOf(content), ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}), time: event.time ?? null })
+        items.push({ id: `${seq}`, kind: 'user', text: textOf(shown), ...(imageBlocks.length > 0 ? { images: imageBlocks.length, imageRefs } : {}), time: event.time ?? null })
       } else if (source?.kind === 'schedule') {
         items.push({ id: `${seq}`, kind: 'event', event: 'schedule', text: reminderText(textOf(content)), time: event.time ?? null })
       } else if (source?.kind === SOURCE_KIND && source.role === 'post') {
@@ -435,7 +437,8 @@ export function install(rt) {
               const key = String(block.attachment.attachmentId)
               if (body.preview === true && previews.get(key)) return shown(key)
               const bytes = await imageBytes(attachments, block)
-              const mime = mediaOf(block.attachment) ?? 'image/png'
+              // A file's ref has no type, only its name: a sent GIF is one.
+              const mime = mediaOf(block.attachment) ?? (block.type === 'file' ? mimeOf(block.attachment.name ?? '') : 'image/png')
               const { width, height } = block.attachment
               if (body.preview === true && !(Math.max(width, height) <= PREVIEW_EDGE)) {
                 // A photo that cannot be shrunk is sent as it is, and remembered as such.
