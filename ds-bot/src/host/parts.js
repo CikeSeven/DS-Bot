@@ -19,12 +19,14 @@ import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import { actFields, isActCall } from './acts.js'
 import { openTurnAt } from './btw.js'
 import { HANDOFF_ACK, HISTORY_TIMEOUT_MS, REPLY_KIND, SOURCE_KIND } from './constants.js'
+import { cleanText } from './diagnostics.js'
 import { assembleLlmStream } from './models.js'
 import { parseReplies, relayRange, stackReplies } from '../shared/group-replies.js'
 import { CHECKPOINT_PROMPT, STEWARD_SYSTEM, checkpointCount, checkpointTail, checkpointTailNote, checkpointText, linesFor, parseDecision, stewardRequest } from './steward.js'
 import { recalledAt } from './recall.js'
 import { RESUME_DELAY_MS } from './resume.js'
 import { clip, createClock, escapeRegExp, estimateTokens, splitRef, textOf } from './text.js'
+import { turnFailure } from './turns.js'
 import { viaOf } from '../shared/im-platforms.js'
 import { checkShownView, normalizeView, readViewReply, viewCardText, viewReply, viewReplyText } from 'deep-view/core'
 
@@ -167,6 +169,20 @@ export function canonicalHeadings(note, names) {
   if (at.some((index, n) => names.includes(heading(index)) && heading(index) !== names[n])) return note
   at.forEach((index, n) => { lines[index] = `## ${names[n]}` })
   return lines.join('\n')
+}
+
+// The failure a turn's end shows, for the endings DSH's own chat draws a failure row
+// for (ui-chat turn-error): an error, a sign-out that stopped it, a turn a restart
+// closed. The message is the one the repair card shows, with secrets hidden.
+function endFailure(reason, redact) {
+  if (reason?.kind === 'error') {
+    const { message, ...failure } = turnFailure(reason.error)
+    const shown = message ? cleanText(message, { redact }).slice(0, 500) : ''
+    return { ...failure, ...(shown ? { message: shown } : {}) }
+  }
+  if (reason?.kind === 'aborted' && reason.reason?.kind === 'hook' && reason.reason.reason === 'deepseek-account/signed-out') return { code: 'ACCOUNT_SIGNED_OUT' }
+  if (reason?.kind === 'interrupted') return { code: 'INTERRUPTED' }
+  return undefined
 }
 
 export function install(rt) {
@@ -1805,6 +1821,23 @@ export function install(rt) {
           acts.set(callId, entry)
         }
         if (event.type === 'tool/ptc-dispatch') entry.result = { text: textOf(data.content), isError: data.isError === true, code: data.error?.code, content: data.content }
+        continue
+      }
+      if (event.type === 'turn/end') {
+        const failure = endFailure(event.data?.reason, rt.redactSecrets)
+        if (failure === undefined) continue
+        const ended = Number.isInteger(event.data?.turn) ? event.data.turn : turn
+        const item = { kind: 'failed', ...failure, time: event.time }
+        if (typeof event.seq === 'number' && Number.isInteger(event.seq)) item.seq = event.seq
+        if (ended !== undefined) item.turn = ended
+        // The failing route's provider is only on the record kept for the repair card,
+        // written as the turn ends, so the feed's item may come without it.
+        const kept = rt.botOf(rt.selfOf(partId))?.failures?.[partId]
+        if (kept?.turn === ended && kept.provider) item.provider = kept.provider
+        // A turn that answered another Bot: that Bot was told, and a retry would answer
+        // the user's last message instead.
+        if (hidden.has(ended)) item.asked = true
+        items.push(item)
         continue
       }
       if (event.type !== 'user/message') continue

@@ -756,6 +756,48 @@ test('the feed shows a team action from its call and settles it from the result 
   assert.deepEqual(rt.displayItems(sessionId, [toolResult(23, 'c-made', 'Created Writer'), user(24, 'next')]).map(item => item.kind), ['user'])
 })
 
+const turnEnd = (seq, turn, reason) => ({ seq, time: seq, type: 'turn/end', data: { turn, reason } })
+
+test('a failed turn is a chat item and a notice; a hidden turn\'s failure is marked and not told', async (t) => {
+  const { call, emit, rt, history, stop } = start()
+  t.after(stop)
+  const { writer } = await team(call)
+  const { boot, seq } = (await call('hello', {})).value
+  const chat = rt.chatOf(writer.id)
+  const failed = turnEnd(3, 1, { kind: 'error', error: { code: 'SERVER', status: 503, message: 'upstream busy, echoed sk-secretkey123456' } })
+  history[chat] = [{ seq: 1, time: 1, type: 'turn/start', data: { turn: 1 } }, user(2, 'Write the post'), failed]
+  for (const event of history[chat]) await emit(chat, event)
+  const items = (await call('chat', { botId: writer.id })).value.items
+  assert.deepEqual(items.map(item => item.kind), ['user', 'failed'])
+  const [, item] = items
+  assert.deepEqual([item.code, item.status, item.turn, item.seq, item.time, item.asked], ['SERVER', 503, 1, 3, 3, undefined])
+  assert.match(item.message, /upstream busy/)
+  assert.doesNotMatch(item.message, /sk-secretkey123456/)
+  const notices = (await call('notices', { boot, since: seq })).value.notices.filter(notice => notice.kind === 'failed')
+  assert.deepEqual(notices.map(notice => [notice.botId, notice.sessionId, notice.code, notice.status]), [[writer.id, chat, 'SERVER', 503]])
+  // The provider's message may echo a key; the notice never carries it.
+  assert.doesNotMatch(notices[0].text, /upstream|sk-/)
+  rt.state.exchangeTurns[chat] = [2]
+  await emit(chat, { seq: 4, time: 4, type: 'turn/start', data: { turn: 2 } })
+  const hidden = turnEnd(5, 2, { kind: 'error', error: { code: 'TIMEOUT', message: 'timed out' } })
+  await emit(chat, hidden)
+  assert.deepEqual(rt.displayItems(chat, [hidden]).map(entry => [entry.code, entry.asked]), [['TIMEOUT', true]])
+  assert.equal((await call('notices', { boot, since: seq })).value.notices.filter(notice => notice.kind === 'failed').length, 1)
+})
+
+test('the failure rows DSH draws are items; other turn endings are not', async (t) => {
+  const { rt, stop } = start()
+  t.after(stop)
+  const kinds = reason => rt.displayItems('s-ends', [turnEnd(9, 1, reason)]).map(item => [item.kind, item.code, item.message])
+  assert.deepEqual(kinds({ kind: 'interrupted' }), [['failed', 'INTERRUPTED', undefined]])
+  assert.deepEqual(kinds({ kind: 'aborted', reason: { kind: 'hook', reason: 'deepseek-account/signed-out' } }), [['failed', 'ACCOUNT_SIGNED_OUT', undefined]])
+  // An AUTH message may echo the key; it never shows.
+  assert.deepEqual(kinds({ kind: 'error', error: { code: 'AUTH', status: 401, message: 'bad key sk-12' } }), [['failed', 'AUTH', undefined]])
+  assert.deepEqual(kinds({ kind: 'completed' }), [])
+  assert.deepEqual(kinds({ kind: 'max-tokens' }), [])
+  assert.deepEqual(kinds({ kind: 'aborted', reason: { kind: 'user' } }), [])
+})
+
 test('image returns the screenshot a computer step answered with', async (t) => {
   const { ctx, call, history, stop } = start()
   t.after(stop)
