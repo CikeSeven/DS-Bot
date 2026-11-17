@@ -1232,6 +1232,8 @@ export function install(rt) {
         if (failure !== undefined) {
           if (watched) rememberFailure(id, turn, failure, session)
           if (blockBot(id, session, failure) && owner !== undefined && info?.role === 'kickoff') rt.holdKickoffAgain(owner)
+          // The user may be waiting on this answer from a phone that is not looking.
+          if (watched && owner !== undefined && !(state.exchangeTurns[id] ?? []).includes(turn)) rt.turnFailed?.(owner, id, failure)
         } else if (reason?.kind === 'completed') {
           forgetFailure(id)
           unblockBot(rt.selfOf(id))

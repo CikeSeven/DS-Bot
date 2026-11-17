@@ -161,3 +161,12 @@ the existing whole-file response and its 16 MiB compatibility limit.
 - 失败：不是用户自己的消息 `bot/invalid`；更早的分段、已经撤回、已经压缩进上下文摘要 `bot/stale`；本地 Agent CLI 上的 Bot `bot/refused`；同一个聊天正在撤回 `bot/busy`。
 - `chat` 和 `earlier` 在被撤回的消息处多一种条目 `{ kind: 'recalled', seq, turn, time }`，它之后被撤回的条目不再出现。
 - feed 新事件 `recall`：`{ botId, sessionId, seq, until }`，客户端从最新一页重新读这个 Bot 的聊天。
+
+## 失败的轮次（2026-11-17）
+
+能力 `turn-failures`。网页上 Bot 私聊里一轮失败时有修复卡片（`turn-error.js`），手机以前什么都看不到，也没法重试。
+
+- `chat`、`earlier` 和 feed 的 `message` 多一种条目 `{ kind: 'failed', code, status?, requestId?, message?, provider?, asked?, seq, turn, time }`，放在这一轮的 `turn/end` 处。出条目的结束方式和 DSH 自己的失败行（ui-chat `turn-error`）相同：出错、因退出 DeepSeek 账号被停下（`ACCOUNT_SIGNED_OUT`）、重启时没做完被关掉（`INTERRUPTED`）。用户叫停、输出到上限、正常结束都没有条目。
+- `code` 是 DSH 的失败代码，DS Bot 修正过的照修正后的（403 内容审核是 `CONTENT_POLICY`）。`message` 是服务商的原文，隐藏了密钥，`AUTH` 永远不带。`provider` 是失败路由的服务商，主机记下这次失败后才有，所以 feed 先到的条目可能没有，下一次读 `chat` 会补上。`asked` 表示这一轮是在答另一个 Bot（隐藏轮次），那个 Bot 已经被告知了。
+- 提醒多一种 `{ kind: 'failed', botId, sessionId, code, status?, text }`：Bot 自己私聊里用户能看到的一轮失败了（隐藏轮次不发）。`text` 是给旧客户端看的英文，不含服务商原文；新客户端按 `code` 用自己的话。
+- 手机上，聊天里最新的一条（后面没有别的条目、Bot 没在干活、不是 `asked`）画成卡片：按 `code` 说清楚出了什么事，给「重试」（调 `resume`，和网页一样不重发消息）和能在手机上做的修复（填 Key、换模型、充值）；凭据类失败在 `blocked` 还在时不给重试。Bot 身上有同一个代码的 `blocked` 时，输入框上方已有修复卡片，聊天里只留一行。更早的失败只是一行字，点开看技术详情（代码、HTTP 状态码、请求 ID、原文），可以复制。

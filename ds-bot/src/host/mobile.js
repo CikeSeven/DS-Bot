@@ -55,8 +55,9 @@ export const CAPABILITIES = [
   'chat-acts',
   'shown-images',
   'recall',
+  'turn-failures',
 ]
-export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval']
+export const NOTICE_KINDS = ['message', 'group', 'done', 'question', 'view', 'approval', 'failed']
 
 // Notices live in memory: a client away longer than this many notices, or across a
 // restart (a new `boot`), reads the team again instead.
@@ -223,6 +224,15 @@ export function install(rt) {
   rt.approvalWaiting = (entry) => {
     const room = rt.roomOf(entry.roomId)
     botNotice(entry.botId, { kind: 'approval', sessionId: entry.sessionId, ...(room ? { roomId: room.id, title: room.name } : {}), text: entry.tool })
+  }
+  // A turn in a Bot's own chat failed: whoever waits for its answer hears why. The
+  // provider's message stays out; it may echo part of a key.
+  rt.turnFailed = (botId, sessionId, failure) => {
+    botNotice(botId, {
+      kind: 'failed', sessionId, code: failure.code,
+      ...(failure.status === undefined ? {} : { status: failure.status }),
+      text: `Its model call failed (${failure.code}${failure.status ? ` ${failure.status}` : ''})`,
+    })
   }
 
   ctx.on('session/event', (session, event) => {

@@ -256,6 +256,7 @@ class _ChatPageState extends State<ChatPage> {
             userMax: userMax,
             admin: room?.admin,
             botId: bot?.id,
+            latest: at == rows.length - 1,
             onLongPress: (row) => _rowMenu(context, row, chat, current: at > partStart),
             onRetry: chat.retry,
             onDiscard: chat.discard,

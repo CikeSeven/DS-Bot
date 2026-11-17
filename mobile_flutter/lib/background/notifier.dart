@@ -17,6 +17,7 @@ import '../data/json.dart';
 import '../data/store.dart';
 import '../data/team_session.dart';
 import '../data/team_state.dart';
+import '../data/turn_failure.dart';
 import '../link/rust_link.dart';
 import '../ui/i18n.dart';
 
@@ -138,10 +139,11 @@ class Notifier {
       actions.add(AndroidNotificationAction('reply', t('Reply'), inputs: [AndroidNotificationActionInput(label: t('Message'))]));
     }
     final title = [jStr(notice, 'name') ?? '', if (jStr(notice, 'title') != null) jStr(notice, 'title')!].where((part) => part.isNotEmpty).join(' · ');
+    final body = kind == 'failed' ? failureNoticeText(notice, team) : jStr(notice, 'text') ?? '';
     await _plugin.show(
       id: (key.hashCode & 0x7fffffff),
       title: title.isEmpty ? 'DS Bot' : title,
-      body: jStr(notice, 'text') ?? '',
+      body: body,
       payload: jsonEncode(payload),
       notificationDetails: NotificationDetails(
         android: AndroidNotificationDetails(
@@ -150,7 +152,7 @@ class Notifier {
           importance: needs ? Importance.high : Importance.defaultImportance,
           priority: needs ? Priority.high : Priority.defaultPriority,
           category: needs ? AndroidNotificationCategory.reminder : AndroidNotificationCategory.message,
-          styleInformation: BigTextStyleInformation(jStr(notice, 'text') ?? ''),
+          styleInformation: BigTextStyleInformation(body),
           groupKey: jStr(notice, 'roomId') ?? jStr(notice, 'botId'),
           actions: actions,
         ),
