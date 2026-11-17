@@ -170,3 +170,14 @@ the existing whole-file response and its 16 MiB compatibility limit.
 - `code` 是 DSH 的失败代码，DS Bot 修正过的照修正后的（403 内容审核是 `CONTENT_POLICY`）。`message` 是服务商的原文，隐藏了密钥，`AUTH` 永远不带。`provider` 是失败路由的服务商，主机记下这次失败后才有，所以 feed 先到的条目可能没有，下一次读 `chat` 会补上。`asked` 表示这一轮是在答另一个 Bot（隐藏轮次），那个 Bot 已经被告知了。
 - 提醒多一种 `{ kind: 'failed', botId, sessionId, code, status?, text }`：Bot 自己私聊里用户能看到的一轮失败了（隐藏轮次不发）。`text` 是给旧客户端看的英文，不含服务商原文；新客户端按 `code` 用自己的话。
 - 手机上，聊天里最新的一条（后面没有别的条目、Bot 没在干活、不是 `asked`）画成卡片：按 `code` 说清楚出了什么事，给「重试」（调 `resume`，和网页一样不重发消息）和能在手机上做的修复（填 Key、换模型、充值）；凭据类失败在 `blocked` 还在时不给重试。Bot 身上有同一个代码的 `blocked` 时，输入框上方已有修复卡片，聊天里只留一行。更早的失败只是一行字，点开看技术详情（代码、HTTP 状态码、请求 ID、原文），可以复制。
+
+## 动图（2026-11-17）
+
+DSH 存图时把 GIF 规范成单帧图，模型只看得到第一帧。手机 `stage-image` 和 IM 消息里的动图因此换个送法，聊天里显示的是用户发出的那张 GIF。
+
+- 送给模型的消息里，一张动图是三部分，按顺序：一句说明（第几帧、共几帧、怎么读，`The GIF itself is the file after it.`），一张 JPEG 拼帧图（最多 4 帧），原 GIF 作为文件 `animated.gif`。文件在发送时传到目标聊天当前的分段（DSH 的 `fileUploads`），模型拿到的是它的只读路径，可以复制、转发、处理完整动图。DSH 收不了文件时只送说明和拼帧图，说明里不提文件。
+- `chat`、`earlier`、`room-chat` 和 feed 的用户条目不带这句说明。`imageRefs` 里这张图是原 GIF：`{ attachmentId, mime: 'image/gif', name: 'animated.gif' }`，拼帧图不出现，`images` 只算一张。`image` 按这个 `attachmentId` 原样返回 GIF 字节，带不带 `preview` 都一样，手机直接播放。GIF 超过 2 MiB 时（手机连接一条消息带不动）`imageRefs` 换成拼帧图。
+- 加这个功能之前发的动图没有原文件，条目只去掉说明，图片仍是拼帧图。
+- `recall` 放回输入框的 `text` 同样不带说明。群聊一轮进行中用户插的话，作为这一轮里的用户行显示时也去掉说明。
+- 桌面上 DSH 的用户气泡只从图片附件画图，这张图显示成原 GIF 的文件卡片，说明和拼帧图同样不显示。
+- 旧电脑会把说明留在条目的 `text` 里，手机认自己刚发的消息时忽略这一行，不会再留下一条一直在发送中的气泡。
