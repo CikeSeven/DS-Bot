@@ -203,10 +203,17 @@ Json? wholeFileOf(Json item) {
   return null;
 }
 
+// The note a computer adds for the model before an animated GIF's sheet of frames; an
+// older computer leaves it in the message's text.
+final _gifNote = RegExp(
+    r'^This picture is an animated GIF, shown as \d+ of its \d+ frames in order: left to right, then top to bottom\.( The GIF itself is the file after it\.)?$');
+
+String _sentText(String text) => text.split('\n').where((line) => !_gifNote.hasMatch(line.trim())).join('\n').trim();
+
 /// The same message as the phone sent: the text the computer keeps (trimmed) and as many photos.
 bool sameMessage(Json item, Json sent) {
   if (jStr(item, 'kind') != 'user') return false;
-  if ((jStr(item, 'text') ?? '').trim() != (jStr(sent, 'text') ?? '').trim()) return false;
+  if (_sentText(jStr(item, 'text') ?? '') != (jStr(sent, 'text') ?? '').trim()) return false;
   final photos = jList(item, 'imageRefs').isNotEmpty ? jList(item, 'imageRefs').length : (jInt(item, 'images') ?? 0);
   return photos == (jInt(sent, 'localImageCount') ?? 0);
 }

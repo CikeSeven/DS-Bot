@@ -115,6 +115,14 @@ void main() {
     desk.gate.complete();
   });
 
+  test('a sent GIF settles on a row whose text still holds the note an older computer kept', () {
+    const note = 'This picture is an animated GIF, shown as 4 of its 7 frames in order: left to right, then top to bottom.';
+    final sent = {'kind': 'user', 'text': 'lol', 'localImageCount': 1};
+    expect(sameMessage({'kind': 'user', 'text': 'lol\n$note', 'images': 1}, sent), isTrue);
+    expect(sameMessage({'kind': 'user', 'text': note, 'images': 1}, {'kind': 'user', 'text': '', 'localImageCount': 1}), isTrue);
+    expect(sameMessage({'kind': 'user', 'text': 'lol\nmore', 'images': 1}, sent), isFalse);
+  });
+
   test('the recall warning speaks only of changed files', () {
     expect(recallWarning({'files': <String>[], 'count': 0, 'maybe': false}, 'Writer'), '');
     expect(recallWarning({'files': ['a.md'], 'count': 2, 'maybe': false}, 'Writer'), 'Writer changed 2 files after this message. Recalling leaves them as they are.');
