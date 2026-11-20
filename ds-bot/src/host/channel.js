@@ -78,7 +78,7 @@ export function install(rt) {
     // `waiting`: the Bot holds its greeting until the user picks its model or fixes
     // what failed it. `blocked`: the facts of a failure only the user can fix (turns.js).
     bots: Object.values(state.bots).map(({ segments, kickoff, ...bot }) => {
-      const tail = rt.chatTail(rt.chatOf(bot.id))
+      const tail = rt.botChatTail(bot.id)
       return {
         ...bot, sessionId: rt.chatOf(bot.id), parts: (segments ?? []).map(segment => segment.sessionId), ...(kickoff ? { waiting: true } : {}),
         // `engine` is the Bot's local-agent route, present only on abots.
@@ -177,12 +177,18 @@ export function install(rt) {
   // at 1 would let its stale key name a different answer.
   const liveRun = randomUUID()
   let liveSeq = 0
-  let liveCache = null
-  const liveAnswer = () => {
-    const value = live()
+  const liveCache = new Map()
+  const liveAnswer = (chatTails) => {
+    const value = chatTails ? {
+      ...live(),
+      chatTails: Object.fromEntries(Object.keys(state.bots).map(id => [id, rt.botChatTail(id) ?? null])),
+    } : live()
     const json = JSON.stringify(value)
-    if (liveCache?.json === json) return liveCache
-    return liveCache = { key: `${liveRun}:${++liveSeq}`, value, json }
+    const cached = liveCache.get(chatTails)
+    if (cached?.json === json) return cached
+    const answer = { key: `${liveRun}:${++liveSeq}`, value, json }
+    liveCache.set(chatTails, answer)
+    return answer
   }
   // What a host that only reads the team may still answer.
   // Updates change the dsh profile, not the team, so a reading host may run them too.
@@ -264,7 +270,7 @@ export function install(rt) {
           if (readOnly === undefined) await rt.bootstrap()
           await rt.catalog()
           await rt.loadSecrets()
-          const answer = liveAnswer()
+          const answer = liveAnswer(body.chatTails === true)
           if (body.since === state.revision && (body.models === undefined || body.models === modelsKey())) {
             if (body.live === answer.key) return ok({ revision: state.revision, unchanged: true, liveKey: answer.key })
             return ok({ revision: state.revision, unchanged: true, liveKey: answer.key, ...answer.value })

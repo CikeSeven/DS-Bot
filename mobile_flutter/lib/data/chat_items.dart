@@ -15,15 +15,26 @@ List<String> keysOf(List<Json> items) {
     for (final item in items)
       () {
         final local = jStr(item, 'localId');
+        final session = jStr(item, 'sessionId');
         final kind = jStr(item, 'kind') ?? '';
         final base = local != null
             ? 'local-$local'
-            : '$kind-${item['seq'] ?? item['time'] ?? (kind == 'steps' ? 't${item['turn'] ?? ''}' : '')}';
+            : '${session == null ? '' : '$session:'}$kind-${item['seq'] ?? item['time'] ?? (kind == 'steps' ? 't${item['turn'] ?? ''}' : '')}';
         final count = seen[base] ?? 0;
         seen[base] = count + 1;
         return count == 0 ? base : '$base#$count';
       }(),
   ];
+}
+
+bool samePushedRow(Json a, Json b) {
+  if (a['sessionId'] != b['sessionId'] || a['kind'] != b['kind']) return false;
+  final seq = jInt(a, 'seq');
+  if (seq == null) return a['time'] == b['time'] && a['callId'] == b['callId'] && a['text'] == b['text'];
+  if (seq != jInt(b, 'seq')) return false;
+  final index = jInt(a, 'feedIndex');
+  final otherIndex = jInt(b, 'feedIndex');
+  return index != null && otherIndex != null ? index == otherIndex : a['text'] == b['text'];
 }
 
 /// A run of computer steps with nothing between them is one row: the card
@@ -37,10 +48,10 @@ List<Json> groupActs(List<Json> items) {
       continue;
     }
     final last = out.isEmpty ? null : out.last;
-    if (last != null && jStr(last, 'act') == 'computer-run') {
+    if (last != null && last['sessionId'] == item['sessionId'] && jStr(last, 'act') == 'computer-run') {
       out[out.length - 1] = {...last, 'steps': [...jMaps(last, 'steps'), item]};
     } else {
-      out.add({'kind': 'act', 'act': 'computer-run', 'seq': ?item['seq'], 'turn': ?item['turn'], 'time': ?item['time'], 'steps': [item]});
+      out.add({'kind': 'act', 'act': 'computer-run', 'sessionId': ?item['sessionId'], 'seq': ?item['seq'], 'turn': ?item['turn'], 'time': ?item['time'], 'steps': [item]});
     }
   }
   return out;

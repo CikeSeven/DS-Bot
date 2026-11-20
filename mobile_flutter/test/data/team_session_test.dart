@@ -65,6 +65,7 @@ void main() {
 
   test('a write with no state in its reply still settles approvals and browser holds by polling', () async {
     var settled = false;
+    var liveVersion = 0;
     final open = {
       'revision': 10,
       'liveKey': 'run:1',
@@ -87,11 +88,12 @@ void main() {
         settled = true;
         return ok(true);
       }
-      if (!settled) return ok(open);
+      final liveKey = 'run:${++liveVersion}';
+      if (!settled) return ok({...open, 'liveKey': liveKey});
       return ok({
         'revision': 10,
         'unchanged': true,
-        'liveKey': 'run:2',
+        'liveKey': liveKey,
         'browserHolds': {},
         'work': {'approvals': []},
       });
@@ -227,6 +229,23 @@ void main() {
     expect(hellos, 2);
     expect(link.calls.where((endpoint) => endpoint == 'notices').length, 2);
     await team.stop();
+  });
+
+  test('a new handshake accepts a fresh host state with a lower revision', () async {
+    var revision = 12;
+    final link = FakeLinkClient((endpoint, payload, state) => switch (endpoint) {
+          'hello' => ok(hello()),
+          'notices' => ok({'boot': 'b1', 'seq': 0, 'notices': []}),
+          _ => ok({'revision': revision, 'bots': [{'id': 'chief', 'name': revision == 12 ? 'Before' : 'After'}]}),
+        });
+    final team = session(() => link, poll: const Duration(hours: 1))..start();
+    addTearDown(team.dispose);
+    await settle();
+    expect(team.team!.bot('chief')!.name, 'Before');
+    revision = 2;
+    link.renew();
+    await settle();
+    expect(team.team!.bot('chief')!.name, 'After');
   });
 
   test('going to the background and back never strands the session', () async {

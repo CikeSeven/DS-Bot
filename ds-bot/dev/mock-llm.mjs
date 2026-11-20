@@ -287,7 +287,9 @@ function decide(body) {
 
   // A recall's note (ds-bot recall.js) joins the user's next message in one request; a
   // model reads past it to the message.
-  const userText = textOf(last?.content).replace(/^(?:\[The user took back [^\]]*\]\s*)+/, '').trim()
+  const userText = textOf(last?.content)
+    .replace(/(?:^|\n)<system-reminder>\n[\s\S]*?\n<\/system-reminder>(?=\n|$)/g, '')
+    .replace(/^(?:\[The user took back [^\]]*\]\s*)+/, '').trim()
   // "撑爆": the provider rejects the request as past its window.
   if (userText.startsWith('撑爆')) return 'overflow'
   // A file in the message (a long Bot message, a file the user sent): DSH gives its saved

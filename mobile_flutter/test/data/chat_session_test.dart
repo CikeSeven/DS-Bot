@@ -69,6 +69,94 @@ List<({String text, bool local})> _users(ChatSession chat) =>
     [for (final row in chat.rows.where((row) => row.kind == 'user')) (text: '${row.item['text']}', local: row.local)];
 
 void main() {
+  test('a pushed reply updates the list and is visible before a cold chat read answers', () async {
+    final gate = Completer<Map<String, Object?>>();
+    const bot = {
+      'id': 'cold',
+      'sessionId': 's-cold',
+      'lastAt': 1000,
+      'preview': 'Old preview',
+    };
+    const reply = {'kind': 'bot', 'seq': 8, 'time': 1008, 'text': 'New reply'};
+    final link = FakeLinkClient((endpoint, payload, state) => switch (endpoint) {
+          'hello' => ok(hello()),
+          'notices' => ok({'boot': 'b1', 'seq': 0, 'notices': []}),
+          'chat' => gate.future,
+          _ => ok({'revision': 1, 'bots': [bot]}),
+        });
+    final team = TeamSession(computer: testComputer, identity: testIdentity, open: (c, i, {pairingCode}) async => link)..start();
+    addTearDown(team.dispose);
+    await settle();
+    link.emit('message', {'botId': 'cold', 'sessionId': 's-cold', 'item': reply, 'index': 0});
+    team.refresh();
+    await settle();
+    expect(team.team!.bot('cold')!.preview, 'New reply');
+    expect(team.team!.bot('cold')!.lastAt, 1008);
+    expect(link.calls, isNot(contains('chat')));
+
+    final chat = ChatSession(team: team, hostId: 'd-host', room: false, id: 'cold', seen: SeenStore(MemoryStore()))..start();
+    addTearDown(chat.dispose);
+    expect(chat.loaded, isTrue);
+    expect(chat.rows.single.item['text'], 'New reply');
+    gate.complete(ok({'sessionId': 's-cold', 'firstSeq': 1, 'lastSeq': 7, 'items': [
+      {'kind': 'bot', 'seq': 7, 'time': 1007, 'text': 'Previous reply'},
+    ]}));
+    await settle();
+    expect(chat.rows.map((row) => row.item['text']), ['Previous reply', 'New reply']);
+  });
+
+  test('rollover fills a missed page and keeps older rows and session-specific keys', () async {
+    var current = 'old';
+    const old = {'kind': 'bot', 'seq': 3, 'time': 1003, 'text': 'Old reply'};
+    const older = {'kind': 'bot', 'seq': 1, 'time': 1001, 'text': 'Earlier reply'};
+    const late = {'kind': 'bot', 'seq': 4, 'time': 1004, 'text': 'Missed reply'};
+    const fresh = {'kind': 'bot', 'seq': 3, 'time': 2003, 'text': 'New part reply'};
+    final link = FakeLinkClient((endpoint, payload, state) {
+      switch (endpoint) {
+        case 'hello':
+          return ok(hello());
+        case 'notices':
+          return ok({'boot': 'b1', 'seq': 0, 'notices': []});
+        case 'state':
+          return ok({'revision': current == 'old' ? 1 : 2, 'bots': [
+            {'id': 'rotation', 'sessionId': current, 'parts': current == 'old' ? [] : ['old']},
+          ]});
+        case 'chat':
+          return ok({
+            'sessionId': current,
+            ...switch (payload['cursor']) {
+              {'beforeSeq': 3} => {'partSessionId': 'old', 'firstSeq': 1, 'lastSeq': 2, 'items': [older]},
+              {'part': 0} => {'partSessionId': 'old', 'firstSeq': 3, 'lastSeq': 4, 'items': [old, late], 'cursor': {'part': 0, 'beforeSeq': 3}},
+              _ when current == 'old' => {'firstSeq': 3, 'lastSeq': 3, 'items': [old], 'cursor': {'part': 0, 'beforeSeq': 3}},
+              _ => {'firstSeq': 1, 'lastSeq': 3, 'items': [
+                {'kind': 'divider', 'time': 2000},
+                fresh,
+              ], 'cursor': {'part': 0}},
+            },
+          });
+      }
+      return refuse('bot/invalid', endpoint);
+    });
+    final team = TeamSession(computer: testComputer, identity: testIdentity, open: (c, i, {pairingCode}) async => link)..start();
+    addTearDown(team.dispose);
+    await settle();
+    final chat = ChatSession(team: team, hostId: 'd-host', room: false, id: 'rotation', seen: SeenStore(MemoryStore()))..start();
+    addTearDown(chat.dispose);
+    await settle();
+    await chat.loadMore();
+    final oldKey = chat.rows.last.key;
+    current = 'new';
+    link.emit('message', {'botId': 'rotation', 'sessionId': 'new', 'item': fresh});
+    link.emit('revision', {'revision': 2});
+    await settle();
+    expect(chat.rows.map((row) => row.item['text']), ['Earlier reply', 'Old reply', 'Missed reply', null, 'New part reply']);
+    expect(chat.rows[1].key, oldKey);
+    expect(chat.rows.last.key, isNot(oldKey));
+    expect(chat.rows[1].item['sessionId'], 'old');
+    expect(chat.sessionId, 'new');
+    expect(chat.hasMore, isFalse);
+  });
+
   test('a sent message shows once when the computer echoes it before send answers', () async {
     final desk = _Desk('echo');
     final chat = await _open(desk, 'echo');

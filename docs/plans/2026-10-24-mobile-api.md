@@ -42,6 +42,8 @@
 ### 私聊
 
 - `chat`、`send`、feed 的 `message` 和 `stream` 照旧（见 `feed.js`）。`chat` 的用户消息同样带 `images` / `imageRefs`。
+- `chat` 的 `sessionId` 指当前会话段，`partSessionId` 指这一页所属的段。非空事件页带 `firstSeq`、`lastSeq`。消息序号只在同一段内有效，翻页时沿用原游标。
+- `state` 传 `chatTails: true` 时，`chatTails` 随 `liveKey` 更新，按 Bot ID 返回 `{ lastAt, preview }`。当前段还没有消息时沿用上一段的最新消息。手机也直接使用收到的 `message` 更新列表和聊天。
 - `image`：`{ sessionId, attachmentId }` → `{ mime, data }`，`data` 是图片字节的 base64。`sessionId` 只认团队的会话（Bot 自己的私聊段、群的会话、换段留下的旧段），其它回 `bot/not-found`；附件不在会话里也是 `bot/not-found`。需要 `images` 能力。加 `preview: true` 时，长边超过 512 像素、文件超过 100 KB 的 JPEG 和 PNG 换成长边 512 的 JPEG 预览，回 `{ mime: 'image/jpeg', data, preview: true }`；其它照旧回原图。聊天里用预览，点开再取原图。需要 `image-preview` 能力。
 
 ### Bot 浏览器

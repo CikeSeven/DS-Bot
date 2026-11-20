@@ -13,21 +13,6 @@ import 'json.dart';
 import 'seen.dart';
 import 'team_session.dart';
 
-class ChatPageData {
-  const ChatPageData({this.sessionId, required this.items, this.cursor});
-
-  factory ChatPageData.from(Object? value) {
-    final map = asJson(value);
-    return ChatPageData(sessionId: jStr(map, 'sessionId'), items: jMaps(map, 'items'), cursor: map['cursor']);
-  }
-
-  final String? sessionId;
-  final List<Json> items;
-  final Object? cursor;
-
-  ChatPageData withItems(List<Json> items) => ChatPageData(sessionId: sessionId, items: items, cursor: cursor);
-}
-
 /// A photo ready to send: shown from [bytes], sent as base64 of the type in [mediaType].
 class OutgoingPhoto {
   const OutgoingPhoto({required this.bytes, required this.mediaType, required this.base64});
@@ -91,14 +76,12 @@ class ChatSession extends ChangeNotifier {
   final Duration pollEvery;
   final String chatKey;
 
-  static final ChatCache<ChatPageData, Json> _pages = ChatCache(16);
   static final Map<String, List<_Outgoing>> _outbox = {};
   static final Set<ChatSession> _live = {};
 
   ChatPageData? _page;
   List<Json> _older = [];
   Object? _cursor;
-  bool _cursorSet = false;
   bool gone = false;
   Object? loadError;
   bool loadingOlder = false;
@@ -108,25 +91,69 @@ class ChatSession extends ChangeNotifier {
   bool _disposed = false;
   bool visible = true;
   bool _wasOnline = false;
+  int _chatSync = 0;
+  int _linkGeneration = 0;
+  int _historyVersion = 0;
+  String? _knownSession;
   Timer? _timer;
   StreamSubscription<RpcEvent>? _feed;
   final Map<String, String> _attempts = {};
+  final Map<String, List<Json>> _recalls = {};
+  String? _streamSession;
   String streaming = '';
   List<ChatRow> _rows = const [];
   bool _rowsDirty = true;
 
-  ChatPageData? get page => _page;
-  bool get loaded => _page != null;
+  List<Json> get _pushed => room ? const [] : team.recentMessages(id);
+  bool get loaded => _page != null || _pushed.isNotEmpty;
 
-  /// The session messages are sent to: the page's, else the Bot's own chat.
   String get sessionId {
-    final fromPage = _page?.sessionId;
-    if (fromPage != null) return fromPage;
     if (room) return team.team?.room(id)?.sessionId ?? id;
-    return team.team?.bot(id)?.chatSession ?? id;
+    final bot = team.team?.bot(id);
+    final fromPage = _page?.sessionId;
+    final pushed = _pushed;
+    final fromFeed = _streamSession ?? (pushed.isEmpty ? null : jStr(pushed.last, 'sessionId'));
+    if (fromFeed != null && !(bot?.parts.contains(fromFeed) ?? false) &&
+        !_older.any((row) => row['sessionId'] == fromFeed && fromFeed != fromPage)) {
+      return fromFeed;
+    }
+    if (bot != null && (fromPage == null || bot.parts.contains(fromPage))) return bot.chatSession;
+    return fromPage ?? bot?.chatSession ?? id;
   }
 
-  List<Json> get items => [..._older, ...?_page?.items];
+  List<Json> get items {
+    final saved = [..._older, ...?_page?.items].where((item) => !_isRecalled(item)).toList();
+    final current = sessionId;
+    for (final row in _pushed) {
+      final part = jStr(row, 'sessionId');
+      if (part == null || _isRecalled(row)) continue;
+      final seq = jInt(row, 'seq');
+      final first = _page?.firstSeq;
+      final last = _page?.lastSeq;
+      if (part == _page?.partSessionId && seq != null && first != null && last != null && seq >= first && seq <= last) continue;
+      if (saved.any((item) => samePushedRow(item, row))) continue;
+      // An event from a part that already ended belongs above the next part.
+      final end = saved.lastIndexWhere((item) {
+        if (item['sessionId'] != part) return false;
+        final otherSeq = jInt(item, 'seq');
+        return seq == null || otherSeq == null || otherSeq <= seq;
+      });
+      if (end >= 0) {
+        saved.insert(end + 1, row);
+      } else if (part == current) {
+        saved.add(row);
+      }
+    }
+    return saved;
+  }
+
+  bool _isRecalled(Json row) {
+    final seq = jInt(row, 'seq');
+    final part = jStr(row, 'sessionId');
+    if (seq == null || part == null || row['kind'] == 'recalled') return false;
+    final ranges = [...?_recalls[part], ...jMaps(jMap(team.team?.raw, 'recalls'), part)];
+    return ranges.any((range) => seq >= (jInt(range, 'seq') ?? seq + 1) && seq < (jInt(range, 'until') ?? seq));
+  }
 
   List<ChatRow> get rows {
     if (!_rowsDirty) return _rows;
@@ -155,18 +182,22 @@ class ChatSession extends ChangeNotifier {
 
   void start() {
     _live.add(this);
-    final cached = _pages.get(chatKey);
+    final cached = team.chatPages.get(chatKey);
     if (cached != null) {
       _page = cached.page;
       _older = [...cached.older];
       _cursor = cached.cursor;
-      _cursorSet = true;
     }
     _wasOnline = team.online;
+    _chatSync = team.chatSync;
+    _linkGeneration = team.linkGeneration;
+    _knownSession = room ? null : team.team?.bot(id)?.sessionId;
     team.addListener(_onTeam);
     _feed = team.feed.listen(_onFeed);
+    scheduleMicrotask(() {
+      if (!_disposed) _markSeen();
+    });
     unawaited(_loop());
-    team.refresh();
   }
 
   @override
@@ -187,8 +218,17 @@ class ChatSession extends ChangeNotifier {
   }
 
   void _onTeam() {
-    // Back online after a drop: read what was missed.
-    if (team.online && !_wasOnline) unawaited(refresh());
+    final current = room ? null : team.team?.bot(id)?.sessionId;
+    final switched = current != _knownSession;
+    final sync = _chatSync != team.chatSync;
+    final reset = _linkGeneration != team.linkGeneration;
+    if (reset) _historyVersion++;
+    _chatSync = team.chatSync;
+    _linkGeneration = team.linkGeneration;
+    _knownSession = current;
+    if (reset || (switched && current != _streamSession)) _clearStreaming();
+    if (sync || switched || reset) _changed();
+    if (team.online && (!_wasOnline || switched || sync)) unawaited(refresh());
     _wasOnline = team.online;
   }
 
@@ -196,28 +236,80 @@ class ChatSession extends ChangeNotifier {
     final value = room
         ? await team.call('room-chat', {'roomId': id, 'cursor': ?cursor})
         : await team.call('chat', {'botId': id, 'cursor': ?cursor});
-    return ChatPageData.from(value);
+    final map = asJson(value);
+    final current = jStr(map, 'sessionId');
+    final parts = team.team?.bot(id)?.parts ?? const <String>[];
+    final index = jInt(cursor, 'part');
+    final part = jStr(map, 'partSessionId') ?? (index != null && index >= 0 && index < parts.length ? parts[index] : current);
+    return ChatPageData(
+      sessionId: current,
+      partSessionId: part,
+      firstSeq: jInt(map, 'firstSeq'),
+      lastSeq: jInt(map, 'lastSeq'),
+      items: [for (final row in jMaps(map, 'items')) if (part == null) row else {...row, 'sessionId': part}],
+      cursor: map['cursor'],
+    );
+  }
+
+  bool _touches(ChatPageData fresh, ChatPageData previous) {
+    if (fresh.partSessionId != previous.partSessionId) return false;
+    final last = previous.lastSeq;
+    final first = fresh.firstSeq;
+    return last == null || first == null || first <= last + 1;
+  }
+
+  Future<void> _updateHistory(ChatPageData next, int version) async {
+    final prev = _page;
+    final pages = <ChatPageData>[next];
+    var oldest = next;
+    // A rollover or a large burst can put a whole page between the old and new
+    // heads. Fill the gap before joining them so the scroll cursor stays valid.
+    while (!room && prev != null && !_touches(oldest, prev) && oldest.cursor != null && pages.length < 8) {
+      final cursor = oldest.cursor;
+      oldest = await _read(cursor);
+      if (_disposed || version != _historyVersion) return;
+      pages.add(oldest);
+      if (mapEquals(asJson(cursor), asJson(oldest.cursor))) break;
+    }
+    final prefix = <Json>[];
+    if (prev != null) {
+      if (room) {
+        prefix.addAll(_older);
+      } else if (_touches(oldest, prev)) {
+        final before = jInt(oldest.cursor, 'beforeSeq');
+        final firstTime = oldest.items.map((row) => jInt(row, 'time')).whereType<int>().firstOrNull;
+        for (final row in [..._older, ...prev.items]) {
+          if (row['sessionId'] != oldest.partSessionId) {
+            prefix.add(row);
+          } else if (before != null) {
+            final seq = jInt(row, 'seq');
+            final time = jInt(row, 'time');
+            if (seq != null ? seq < before : time != null && firstTime != null && time < firstTime) prefix.add(row);
+          }
+        }
+      }
+    }
+    if (prefix.isEmpty) _cursor = oldest.cursor;
+    _older = [...prefix, for (final page in pages.skip(1).toList().reversed) ...page.items];
+    _page = prev != null && prev.partSessionId == next.partSessionId ? next.withItems(keepSame(prev.items, next.items)) : next;
+    if (prev != null && prev.sessionId != next.sessionId && _streamSession != next.sessionId) _clearStreaming();
   }
 
   /// One chat read at a time: a burst of messages becomes one read now and at
   /// most one more after it.
   Future<void> refresh() async {
-    if (_disposed || id.isEmpty) return;
-    if (_reading) {
+    if (_disposed || id.isEmpty || !team.linked) return;
+    if (_reading || _loadingMore) {
       _again = true;
       return;
     }
     _reading = true;
+    final version = _historyVersion;
     try {
       final next = await _read();
-      if (_disposed) return;
-      final prev = _page;
-      _page = prev != null && prev.sessionId == next.sessionId ? next.withItems(keepSame(prev.items, next.items)) : next;
-      if (prev != null && prev.sessionId != next.sessionId) _older = [];
-      if (!_cursorSet) {
-        _cursor = next.cursor;
-        _cursorSet = true;
-      }
+      if (_disposed || version != _historyVersion) return;
+      await _updateHistory(next, version);
+      if (_disposed || version != _historyVersion) return;
       loadError = null;
       gone = false;
       _keep();
@@ -225,7 +317,7 @@ class ChatSession extends ChangeNotifier {
       _markSeen();
       _changed();
     } on Object catch (failure) {
-      if (_disposed) return;
+      if (_disposed || version != _historyVersion) return;
       final code = errorCode(failure);
       if (code == 'bot/not-found') {
         gone = true;
@@ -239,41 +331,50 @@ class ChatSession extends ChangeNotifier {
       if (_again && !_disposed) {
         _again = false;
         unawaited(refresh());
+      } else if (!room && hasMore && _older.isEmpty && (_page?.items.length ?? 0) < 12 &&
+          jInt(_cursor, 'beforeSeq') == null) {
+        unawaited(loadMore());
       }
     }
   }
 
-  /// After a recall the rows from the recalled message on are gone, on any page:
-  /// read the chat again from the newest page, and drop the reply being written.
   Future<void> reload() async {
     if (_disposed) return;
-    _older = [];
-    _cursor = null;
-    _cursorSet = false;
-    _attempts.clear();
-    streaming = '';
+    _historyVersion++;
+    _clearStreaming();
     _changed();
     await refresh();
   }
 
-  void _keep() {
-    final page = _page;
-    if (page != null) _pages.keep(chatKey, chatKey, CachedChat(page: page, older: _older, cursor: _cursor));
+  void _clearStreaming() {
+    _attempts.clear();
+    _streamSession = null;
+    streaming = '';
   }
 
-  bool get hasMore => _cursorSet && _cursor != null;
+  void _keep() {
+    final page = _page;
+    if (page != null) team.chatPages.keep(chatKey, chatKey, CachedChat(page: page, older: _older, cursor: _cursor));
+  }
+
+  bool get hasMore => _cursor != null;
 
   /// The page before the oldest one shown.
   Future<void> loadMore() async {
-    if (!hasMore || _loadingMore || _disposed) return;
+    if (!hasMore || _loadingMore || _reading || _disposed || !team.linked) return;
     _loadingMore = true;
+    final version = _historyVersion;
     loadingOlder = true;
     _changed();
     try {
-      final next = await _read(_cursor);
-      if (_disposed) return;
-      _cursor = next.cursor;
-      _older = [...next.items, ..._older];
+      for (var count = 0; count < 8 && _cursor != null; count++) {
+        final cursor = _cursor;
+        final next = await _read(cursor);
+        if (_disposed || version != _historyVersion) return;
+        _cursor = next.cursor;
+        _older = [...next.items, ..._older];
+        if (room || next.items.any((row) => row['kind'] != 'divider') || mapEquals(asJson(cursor), asJson(_cursor))) break;
+      }
       _keep();
     } on Object {
       // Keep the page we have.
@@ -281,6 +382,10 @@ class ChatSession extends ChangeNotifier {
       _loadingMore = false;
       loadingOlder = false;
       _changed();
+      if (_again && !_disposed) {
+        _again = false;
+        unawaited(refresh());
+      }
     }
   }
 
@@ -291,27 +396,25 @@ class ChatSession extends ChangeNotifier {
       case 'room':
         if (room && jStr(data, 'roomId') == id) unawaited(refresh());
       case 'recall':
-        if (!room && jStr(data, 'sessionId') == sessionId) unawaited(reload());
-      case 'message':
-        if (jStr(data, 'sessionId') != sessionId) return;
-        final item = jMap(data, 'item');
-        final page = _page;
-        if (item != null && page != null) {
-          final seq = item['seq'];
-          if (seq == null || !page.items.any((entry) => entry['seq'] == seq)) {
-            _page = page.withItems([...page.items, item]);
-            // The computer tells of the message before `send` answers: swap the
-            // local row for it in the same frame, so it never shows twice.
-            _keep();
-            _settleOutbox();
-            _changed();
-          }
-          final time = jInt(item, 'time');
-          if (visible && time != null && time > 0) unawaited(seen.markSeen(hostId, id, time));
+        final part = jStr(data, 'sessionId');
+        if (!room && jStr(data, 'botId') == id && part != null) {
+          _recalls.putIfAbsent(part, () => []).add(asJson(data));
+          unawaited(reload());
         }
+      case 'message':
+        if (room || jStr(data, 'botId') != id) return;
+        _settleOutbox();
+        _markSeen();
+        _changed();
         unawaited(refresh());
       case 'stream':
-        if (jStr(data, 'sessionId') != sessionId) return;
+        if (room || jStr(data, 'botId') != id) return;
+        final part = jStr(data, 'sessionId');
+        if (part == null || (team.team?.bot(id)?.parts.contains(part) ?? false)) return;
+        if (_streamSession != part) {
+          _clearStreaming();
+          _streamSession = part;
+        }
         final attempt = jStr(data, 'attemptId') ?? '';
         final text = jStr(data, 'text');
         final phase = jStr(data, 'phase');
@@ -324,13 +427,14 @@ class ChatSession extends ChangeNotifier {
         }
         // Each attempt is its own reply part; the saved message shows them as separate bubbles.
         streaming = _attempts.values.where((part) => part.isNotEmpty).join('\n\n');
-        _changed();
+        notifyListeners();
     }
   }
 
   int get latestAt {
-    var max = room ? (team.team?.room(id)?.lastAt ?? 0) : (team.team?.bot(id)?.lastAt ?? 0);
-    for (final item in _page?.items ?? const <Json>[]) {
+    var max = room ? (team.team?.room(id)?.lastAt ?? 0) : 0;
+    for (final item in items) {
+      if (!room && !const {'bot', 'user', 'answer', 'post', 'view'}.contains(jStr(item, 'kind'))) continue;
       final time = jInt(item, 'time');
       if (time != null && time > max) max = time;
     }
@@ -398,10 +502,10 @@ class ChatSession extends ChangeNotifier {
       // The computer takes photos and files in separate messages: photos (and the
       // text) go first, then the files.
       if (images.isNotEmpty || files.isEmpty) {
-        await team.call('send', {'sessionId': entry.sessionId, 'text': text, if (images.isNotEmpty) 'images': images});
+        await team.call('send', {'sessionId': id, 'text': text, if (images.isNotEmpty) 'images': images});
       }
       if (files.isNotEmpty) {
-        await team.call('send', {'sessionId': entry.sessionId, 'text': images.isEmpty ? text : '', 'files': files});
+        await team.call('send', {'sessionId': id, 'text': images.isEmpty ? text : '', 'files': files});
       }
       for (final chat in _live) {
         if (chat.chatKey == key) unawaited(chat.refresh());
@@ -465,7 +569,10 @@ class ChatSession extends ChangeNotifier {
         index--;
       }
       for (index++; index < all.length; index++) {
-        if (!entry.known.contains(keys[index]) && sameMessage(all[index], entry.item)) break;
+        if (!entry.known.contains(keys[index]) && sameMessage(all[index], entry.item) &&
+            (room || all[index]['sessionId'] == entry.sessionId || all[index]['sessionId'] == sessionId)) {
+          break;
+        }
       }
       if (index >= all.length) continue;
       pending.remove(entry);

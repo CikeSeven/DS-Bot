@@ -8,6 +8,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../api/link_client.dart';
+import 'chat_cache.dart';
+import 'chat_items.dart';
 import 'gate.dart';
 import 'json.dart';
 import 'notices.dart';
@@ -31,7 +33,9 @@ const _pendingMutating = {
   'learning-answer',
 };
 
-const _plainReads = {'state', 'hello', 'notices'};
+const _plainReads = {'state', 'hello', 'notices', 'chat', 'room-chat'};
+const _previewKinds = {'bot', 'user', 'answer', 'post', 'view'};
+final _previewSpaces = RegExp(r'\s+');
 
 class Hello {
   Hello(this.raw);
@@ -75,6 +79,9 @@ class TeamSession extends ChangeNotifier {
   // Profile photos travel by reference and are fetched once per content hash.
   static final Map<String, String> _photoCache = {};
   final Set<String> _photoFetching = {};
+  final chatPages = ChatCache<ChatPageData, Json>();
+  final _recentMessages = <String, List<Json>>{};
+  final _messagePreviews = <String, Json>{};
 
   TeamState? _team;
   bool _online = false;
@@ -96,6 +103,8 @@ class TeamSession extends ChangeNotifier {
   bool _reading = false;
   bool _again = false;
   bool _background = false;
+  int _chatSync = 0;
+  int _handshake = 0;
 
   TeamState? get team => _team;
 
@@ -113,6 +122,10 @@ class TeamSession extends ChangeNotifier {
   Object? get error => _error;
   Hello? get hello => _hello;
   String? get hostName => _client?.hostName;
+  int get chatSync => _chatSync;
+  int get linkGeneration => _handshake;
+
+  List<Json> recentMessages(String botId) => _recentMessages[botId] ?? const [];
 
   /// Every feed event from the computer: message, stream, notice, room, live, revision.
   Stream<RpcEvent> get feed => _feed.stream;
@@ -123,7 +136,7 @@ class TeamSession extends ChangeNotifier {
   /// handle on the same computer can close without ending this session's link.
   Future<void> get opened => _opened.future;
 
-  Json get _stateQuery => {'since': _revision, 'avatars': 'ref', if (_liveKey != null) 'live': _liveKey};
+  Json get _stateQuery => {'since': _revision, 'avatars': 'ref', 'chatTails': true, if (_liveKey != null) 'live': _liveKey};
 
   void start() {
     if (!_stopped) return;
@@ -157,7 +170,9 @@ class TeamSession extends ChangeNotifier {
   }
 
   void _set({TeamState? team, bool clearTeam = false, bool? online, Object? error, bool clearError = false, Hello? hello}) {
-    if (team != null || clearTeam) _team = team;
+    if (team != null || clearTeam) {
+      _team = team == null ? null : TeamState(team.raw, messagePreviews: Map.of(_messagePreviews));
+    }
     if (online != null) _online = online;
     if (error != null || clearError) _error = error;
     if (hello != null) _hello = hello;
@@ -174,6 +189,12 @@ class TeamSession extends ChangeNotifier {
   void _apply(Json raw) {
     final next = TeamState(raw);
     if (next.revision < _revision) return;
+    final nextLiveSeq = int.tryParse(next.liveKey?.split(':').last ?? '');
+    final liveSeq = int.tryParse(_liveKey?.split(':').last ?? '');
+    if (next.revision == _revision && nextLiveSeq != null && liveSeq != null && nextLiveSeq < liveSeq &&
+        next.liveKey?.split(':').first == _liveKey?.split(':').first) {
+      return;
+    }
     _revision = next.revision;
     final live = next.liveKey;
     if (live != null) _liveKey = live;
@@ -221,6 +242,7 @@ class TeamSession extends ChangeNotifier {
   /// reply's state (or a full reload on failure) puts the computer's truth back.
   Future<Object?> call(String endpoint, [Json payload = const {}]) async {
     final client = _client;
+    final handshake = _handshake;
     if (client == null) throw offlineError();
     await ensureUnlock(unlocker, endpoint);
     if (!identical(_client, client)) throw offlineError();
@@ -233,7 +255,7 @@ class TeamSession extends ChangeNotifier {
       try {
         final answer = await callBotState(client, endpoint, payload, _stateQuery);
         _writes.remove(write);
-        if (answer.state != null && identical(_client, client)) {
+        if (answer.state != null && identical(_client, client) && handshake == _handshake) {
           _apply(answer.state!);
         } else if (_pendingMutating.contains(endpoint) && identical(_client, client)) {
           unawaited(_poll());
@@ -261,6 +283,8 @@ class TeamSession extends ChangeNotifier {
     _background = !foreground;
     _client?.setForeground(foreground);
     if (foreground) {
+      _chatSync++;
+      _set();
       unawaited(_poll());
     } else {
       _timer?.cancel();
@@ -273,23 +297,24 @@ class TeamSession extends ChangeNotifier {
   /// one more after it, not a pile of reads over a slow link.
   Future<void> _poll() async {
     final client = _client;
-    if (_stopped || client == null) return;
+    if (_stopped || client == null || !_link.online) return;
     if (_reading) {
       _again = true;
       return;
     }
     _reading = true;
+    final handshake = _handshake;
     try {
       final next = await callBot(client, 'state', _stateQuery);
-      if (_stopped || !identical(_client, client)) return;
+      if (_stopped || !identical(_client, client) || handshake != _handshake) return;
       if (next is Map<String, dynamic>) _apply(next);
       // Before hello the error is hello's to clear: an outdated computer still answers reads.
       _set(clearError: _hello != null);
     } on Object catch (failure) {
-      if (!_stopped && identical(_client, client)) _set(error: failure);
+      if (!_stopped && identical(_client, client) && handshake == _handshake) _set(error: failure);
     } finally {
       _reading = false;
-      if (!_stopped && identical(_client, client)) {
+      if (!_stopped && _client != null) {
         if (_again) {
           _again = false;
           unawaited(_poll());
@@ -333,12 +358,22 @@ class TeamSession extends ChangeNotifier {
           _set(online: true);
           unawaited(_poll());
         } else {
+          _handshake++;
+          _revision = -1;
+          _liveKey = null;
+          _messagePreviews.clear();
+          _set(online: false, team: _team);
           unawaited(_sync(client));
         }
       case LinkPhase.connecting || LinkPhase.reconnecting || LinkPhase.hostAway:
         _set(online: false);
       case LinkPhase.rejected:
         final failure = LinkError(status.code, status.message ?? 'The computer does not accept this phone.');
+        if (isRejected(failure)) {
+          chatPages.clear();
+          _recentMessages.clear();
+          _messagePreviews.clear();
+        }
         _set(online: false, error: failure, clearTeam: isRejected(failure));
       case LinkPhase.closed:
         // Someone else ended this session (a new pairing with the same
@@ -351,16 +386,64 @@ class TeamSession extends ChangeNotifier {
 
   void _onEvent(LinkClient client, RpcEvent event) {
     final hello = _hello;
-    if (_stopped || !identical(_client, client) || hello == null) return;
-    if (event.event == 'notice' && !_notices.acceptLive(hello.boot, event.data)) return;
+    if (_stopped || !identical(_client, client)) return;
+    if (event.event == 'notice' && (hello == null || !_notices.acceptLive(hello.boot, event.data))) return;
+    if (event.event == 'message') _rememberMessage(event.data);
+    if (event.event == 'recall') _forgetMessages(event.data);
     if (event.event == 'revision' || event.event == 'live') unawaited(_poll());
     _feed.add(event);
+  }
+
+  void _rememberMessage(Object? data) {
+    final botId = jStr(data, 'botId');
+    final sessionId = jStr(data, 'sessionId');
+    final item = jMap(data, 'item');
+    if (botId == null || sessionId == null || item == null) return;
+    final row = {...item, 'sessionId': sessionId, 'feedIndex': ?jInt(data, 'index')};
+    final recent = _recentMessages.remove(botId) ?? <Json>[];
+    if (!recent.any((old) => samePushedRow(old, row))) recent.add(row);
+    if (recent.length > 60) recent.removeAt(0);
+    _recentMessages[botId] = recent;
+    if (_recentMessages.length > 16) _recentMessages.remove(_recentMessages.keys.first);
+
+    final time = jInt(item, 'time');
+    if (time == null || !_previewKinds.contains(jStr(item, 'kind'))) return;
+    if (time < (jInt(_messagePreviews[botId], 'lastAt') ?? 0)) return;
+    final text = jStr(item, 'text') ?? jStr(item, 'title') ?? jStrings(item, 'texts').join(' ');
+    final preview = text.replaceAll(_previewSpaces, ' ').trim();
+    _messagePreviews[botId] = {
+      'lastAt': time,
+      'preview': String.fromCharCodes(preview.runes.take(300)),
+      'sessionId': sessionId,
+      'seq': jInt(item, 'seq'),
+    };
+    _set(team: _team);
+  }
+
+  void _forgetMessages(Object? data) {
+    final botId = jStr(data, 'botId');
+    final sessionId = jStr(data, 'sessionId');
+    final from = jInt(data, 'seq');
+    final until = jInt(data, 'until');
+    if (botId == null || sessionId == null || from == null || until == null) return;
+    bool recalled(Json row) {
+      final seq = jInt(row, 'seq');
+      return row['sessionId'] == sessionId && seq != null && seq >= from && seq < until;
+    }
+
+    _recentMessages[botId]?.removeWhere(recalled);
+    final preview = _messagePreviews[botId];
+    if (preview != null && recalled(preview)) _messagePreviews.remove(botId);
+    chatPages.remove('${computer.hostDeviceId}:bot:$botId');
+    _set(team: _team);
+    unawaited(_poll());
   }
 
   /// hello, the team and missed notices, after a new handshake.
   Future<void> _sync(LinkClient client) async {
     _helloTimer?.cancel();
     _hello = null;
+    final handshake = _handshake;
     // hello says whether the computer's DS Bot is current: api is null when it
     // is too old for this app. The team read goes out with it, not after it:
     // each is a round trip through the Relay.
@@ -372,7 +455,7 @@ class TeamSession extends ChangeNotifier {
         'client': {'name': 'dsbot-flutter', 'platform': defaultTargetPlatform.name},
       });
     } on Object catch (failure) {
-      if (_stopped || !identical(_client, client)) return;
+      if (_stopped || !identical(_client, client) || handshake != _handshake) return;
       // Lost in transit, not an old computer: try again while the link is up.
       _set(error: failure);
       _helloTimer = Timer(pollEvery, () {
@@ -380,17 +463,18 @@ class TeamSession extends ChangeNotifier {
       });
       return;
     }
-    if (_stopped || !identical(_client, client)) return;
+    if (_stopped || !identical(_client, client) || handshake != _handshake) return;
     final hello = answer is Map<String, dynamic> ? Hello(answer) : null;
     if (hello == null || hello.api == null) {
       _set(error: BotError('link/outdated', 'Update DS Bot on the computer to use this phone.'), online: false);
       return;
     }
     _hello = hello;
+    _chatSync++;
     _set(hello: hello, online: true, clearError: true);
     final cursor = _notices.connect(boot: hello.boot, seq: hello.seq);
     callBot(client, 'notices', {'boot': hello.boot, 'since': cursor.since}).then((answer) {
-      if (_stopped || !identical(_client, client)) return;
+      if (_stopped || !identical(_client, client) || handshake != _handshake) return;
       final catchUp = _notices.acceptCatchUp(hello.boot, answer);
       if (catchUp.reset || catchUp.replay.isNotEmpty) unawaited(_poll());
       if (!catchUp.reset) {

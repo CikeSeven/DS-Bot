@@ -1896,7 +1896,7 @@ export function install(rt) {
     return items
   }
 
-  async function partPage(parts, index, cursor, steps = false) {
+  async function partPage(parts, index, cursor, { steps = false, includeRange = false } = {}) {
     const part = parts[index]
     const signal = AbortSignal.timeout(HISTORY_TIMEOUT_MS)
     // An archived earlier part may have no live agent left; its stored events
@@ -1935,7 +1935,11 @@ export function install(rt) {
     // The line above a part's first message marks where it began.
     if (!more && index > 0) items.unshift({ kind: 'divider', time: part.startedAt })
     if (steps === true) await applySteps(items, events, part.sessionId)
-    return { items, cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null }
+    return {
+      items,
+      cursor: more ? { part: index, beforeSeq: events[0].seq } : index > 0 ? { part: index - 1 } : null,
+      ...(includeRange ? { partSessionId: part.sessionId, firstSeq: events[0]?.seq, lastSeq: events.at(-1)?.seq } : {}),
+    }
   }
 
   async function earlierPage(sessionId, cursor) {
@@ -2029,7 +2033,7 @@ export function install(rt) {
   const PREVIEWABLE = new Set(['bot', 'user', 'answer', 'post', 'view'])
   const tails = new Map()
   const previewText = item => String(item.text ?? item.title ?? item.texts?.join(' ') ?? '').replace(/\s+/g, ' ').trim()
-  const applyTail = (sessionId, item) => tails.set(sessionId, { lastAt: item.time ?? 0, preview: previewText(item) })
+  const tailOf = item => ({ lastAt: item.time ?? 0, preview: previewText(item).slice(0, 300) })
   const fillTail = async sessionId => {
     // Newest page back until a row shows; chats almost always have it on page one.
     try {
@@ -2042,23 +2046,46 @@ export function install(rt) {
         }, AbortSignal.timeout(HISTORY_TIMEOUT_MS))
         const events = page.records.map(record => record.event)
         const last = [...displayItems(sessionId, events)].reverse().find(item => PREVIEWABLE.has(item.kind))
-        if (last !== undefined) { applyTail(sessionId, last); return }
+        if (last !== undefined) return tailOf(last)
         if (!page.hasMore || events.length === 0) break
         beforeSeq = events[0]?.seq
       }
-      tails.set(sessionId, { lastAt: 0, preview: '' })
-    } catch { tails.set(sessionId, { lastAt: 0, preview: '' }) }
+      return { lastAt: 0, preview: '' }
+    } catch { return undefined }
   }
   rt.chatTail = sessionId => {
-    if (!tails.has(sessionId)) { tails.set(sessionId, null); void fillTail(sessionId); return undefined }
-    return tails.get(sessionId) ?? undefined
+    if (!tails.has(sessionId)) {
+      const pending = {}
+      tails.set(sessionId, pending)
+      void fillTail(sessionId).then(tail => {
+        if (tails.get(sessionId) !== pending) return
+        if (tail === undefined) { tails.delete(sessionId); return }
+        tails.set(sessionId, tail)
+        rt.noteWork?.()
+      })
+      return undefined
+    }
+    const tail = tails.get(sessionId)
+    return tail?.lastAt === undefined ? undefined : tail
+  }
+  rt.botChatTail = botId => {
+    const parts = partsOf(botId)
+    for (let index = parts.length - 1; index >= 0; index -= 1) {
+      const tail = rt.chatTail(parts[index].sessionId)
+      if (tail === undefined) return undefined
+      if (tail.lastAt > 0) return tail
+    }
+    return { lastAt: 0, preview: '' }
   }
   // A recall can take the newest line away; the next read finds the one before it.
   rt.forgetChatTail = (sessionId) => { tails.delete(sessionId) }
-  ctx.on('session/event', (session, event) => {
-    if (!tails.has(session.id)) return
+  ctx.on('session/event', function rememberChatTail(session, event) {
+    if (!rt.chatOwners.has(session.id)) return
     try {
-      for (const item of displayItems(session.id, [event], session)) if (PREVIEWABLE.has(item.kind)) applyTail(session.id, item)
+      const item = displayItems(session.id, [event], session).findLast(item => PREVIEWABLE.has(item.kind))
+      if (item === undefined) return
+      tails.set(session.id, tailOf(item))
+      rt.noteWork?.()
     } catch { /* a tail miss must never take out the other listeners */ }
   })
 
@@ -2067,7 +2094,7 @@ export function install(rt) {
     if (parts.length === 0) throw Object.assign(new Error('Unknown Bot'), { code: 'bot/not-found' })
     const index = Number.isInteger(cursor?.part) ? cursor.part : parts.length - 1
     if (index < 0 || index >= parts.length) return { sessionId: parts.at(-1).sessionId, items: [], cursor: null }
-    return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, steps)) }
+    return { sessionId: parts.at(-1).sessionId, ...(await partPage(parts, index, cursor, { steps, includeRange: true })) }
   }
 
   // "New session" in a Bot's chat: a manual move to a fresh part with the
