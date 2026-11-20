@@ -201,6 +201,14 @@ await step('a Bot is not offered dsh\'s blocking question tool', () => send(botN
     ?? expect(saidText(calls, /^收到：阻塞提问/), 'expected Writer to answer in its reply')
 })
 
+// 断流: the mock's first answer stops before its end, as a dropped connection does. The
+// step runs again and the turn ends on the whole answer, not on STREAM_CLOSED.
+await step('a reply cut off mid-response runs again', () => send(botNamed('Writer').id, '断流'), (_value, calls) => {
+  const cut = calls.filter(call => call.cut).length
+  return expect(cut === 1, `expected one cut answer, got ${cut}`)
+    ?? expect(saidText(calls, /^断流后重答/), 'expected Writer to answer in full after the cut')
+})
+
 // show_view: an options card waits in state.views. The key is the chat's Session
 // id — the Bot id until its chat first moves to a fresh part (chatOf).
 await step('Writer shows an options view', () => send(botNamed('Writer').id, '视图选项'), () => {

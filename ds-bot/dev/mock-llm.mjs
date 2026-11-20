@@ -24,6 +24,7 @@
 //   长文 N / long N (N×1000 characters) · 长任务 N [K] (N steps of K×1000, default 4)
 //   查记录 词 [词…] · 查锚点 part N #序号 · 查第 N 段 (read_own_chat)
 //   上下文里有 词 (searches the context except the last message) · 撑爆 (fake overflow, 400)
+//   断流 (the first answer stops mid-response without message_stop; the request sent again gets it whole)
 //   写文件 名 (writes a small file of that name in the working folder)
 //   报错 (fake rejected key, 401; also as the text of 转告, so the receiving Bot fails)
 //   卡片 K (K×1000 characters, then a question card) · 笔记模式 截断一次|缺节一次|总截断|总缺节|失败|正常
@@ -76,6 +77,8 @@ const REJECT_IMAGES = process.env.MOCK_REJECT_IMAGES === '1'
 // MOCK_LOG_TOOLS=1 records the request's tool names, to compare two Sessions' tool views.
 const LOG_TOOLS = process.env.MOCK_LOG_TOOLS === '1'
 let seq = 0
+// Requests whose answer was already cut off once (断流), by message count and text.
+const cutOnce = new Set()
 
 const textOf = content => typeof content === 'string' ? content
   : Array.isArray(content) ? content.map(block => (block.type === 'text' ? block.text : '')).join('\n') : ''
@@ -290,6 +293,13 @@ function decide(body) {
   const userText = textOf(last?.content).replace(/^(?:\[The user took back [^\]]*\]\s*)+/, '').trim()
   // "撑爆": the provider rejects the request as past its window.
   if (userText.startsWith('撑爆')) return 'overflow'
+  // "断流": the connection drops mid-response once; the step run again gets the whole answer.
+  if (userText.startsWith('断流')) {
+    const key = `${messages.length}:${userText}`
+    if (cutOnce.has(key)) return [text('断流后重答：这次说完了。')]
+    cutOnce.add(key)
+    return Object.assign([], { cut: '断流前的半句' })
+  }
   // A file in the message (a long Bot message, a file the user sent): DSH gives its saved
   // path, and the Bot reads it first.
   const saved = /verbatim read-only copy saved at ("(?:[^"\\]|\\.)*")/.exec(userText)
@@ -770,7 +780,7 @@ const server = createServer((req, res) => {
     // Hashes of the system prompt and tools show whether two Sessions share a cacheable prefix.
     const digest = value => createHash('sha256').update(JSON.stringify(value ?? null)).digest('hex').slice(0, 12)
     const watch = WATCH ? { watchHit: JSON.stringify([body.system, body.tools, body.messages]).includes(WATCH) } : {}
-    appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, tokens, images, session: req.headers['x-deepseek-harness-session-id'] ?? null, ...watch, ...LOG_TOOLS ? { toolNames: (body.tools ?? []).map(entry => entry.name ?? entry.type) } : {}, ...search ? { nativeSearch: { model: body.model, tools: body.tools, auth: [req.headers['x-api-key'] ? 'x-api-key' : '', req.headers.authorization ? 'bearer' : ''].filter(Boolean) } } : {}, system: digest(body.system), tools: digest(body.tools), messages: body.messages?.length ?? 0, first: textOf(body.messages?.[0]?.content).slice(0, 60), last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS), out: out.map(block => (block.type === 'text' && block.text.length > 200 ? { ...block, text: `${block.text.slice(0, 200)}…(${block.text.length})` } : block)) }) + '\n')
+    appendFileSync(LOG, JSON.stringify({ t: new Date().toISOString(), id, tokens, images, session: req.headers['x-deepseek-harness-session-id'] ?? null, ...watch, ...LOG_TOOLS ? { toolNames: (body.tools ?? []).map(entry => entry.name ?? entry.type) } : {}, ...search ? { nativeSearch: { model: body.model, tools: body.tools, auth: [req.headers['x-api-key'] ? 'x-api-key' : '', req.headers.authorization ? 'bearer' : ''].filter(Boolean) } } : {}, system: digest(body.system), tools: digest(body.tools), ...out.cut ? { cut: true } : {}, messages: body.messages?.length ?? 0, first: textOf(body.messages?.[0]?.content).slice(0, 60), last: textOf(body.messages?.at(-1)?.content).slice(0, LOG_CHARS), out: out.map(block => (block.type === 'text' && block.text.length > 200 ? { ...block, text: `${block.text.slice(0, 200)}…(${block.text.length})` } : block)) }) + '\n')
     if (search) {
       setTimeout(() => {
         res.writeHead(200, { 'content-type': 'application/json' })
@@ -781,6 +791,12 @@ const server = createServer((req, res) => {
     setTimeout(async () => {
       res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache' })
       sse(res, { type: 'message_start', message: { id: `mock-${id}`, type: 'message', role: 'assistant', model: body.model ?? 'mock', content: [], usage: { input_tokens: tokens - cached, output_tokens: 0, cache_read_input_tokens: cached } } })
+      if (out.cut) {
+        sse(res, { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } })
+        sse(res, { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: out.cut } })
+        res.end()
+        return
+      }
       let index = 0
       let usedTool = false
       for (const block of out) {
