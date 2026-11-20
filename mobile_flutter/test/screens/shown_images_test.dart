@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dsbot_mobile/app/app_state.dart';
@@ -10,6 +11,7 @@ import 'package:dsbot_mobile/ui/i18n.dart';
 import 'package:dsbot_mobile/ui/markdown.dart';
 import 'package:dsbot_mobile/ui/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_link.dart';
@@ -39,6 +41,8 @@ const _reply = {
 // A reply that names a picture by a file: URL on the computer.
 const _fileUrlReply = {'kind': 'bot', 'seq': 10, 'time': 2, 'text': 'Here it is:\n\n![Plot](file:///home/me/out/plot.png)'};
 
+// A picture whose path has a space, written without angle brackets.
+const _spacedReply = {'kind': 'bot', 'seq': 11, 'time': 3, 'text': '![Sales](charts/q3 sales.png)'};
 
 Widget _page(Widget body) => MaterialApp(theme: buildTheme(Palette.of(dark: false)), home: Scaffold(body: body));
 
@@ -176,4 +180,46 @@ void main() {
     await tester.pump(const Duration(milliseconds: 1));
   });
 
+  testWidgets('a long press on a full-screen picture saves it to the photos', (tester) async {
+    final gal = <MethodCall>[];
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(const MethodChannel('gal'), (call) async {
+      gal.add(call);
+      return call.method == 'requestPermission' ? true : null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(const MethodChannel('gal'), null));
+    final (session, _, asked) = await connect(tester, ['images', 'image-preview', 'shown-images']);
+    await tester.pumpWidget(_host(
+      ChatItemView(row: const ChatRow(_spacedReply, 'r11', null), team: session.team!, sessionId: 's-chief', inRoom: false, flat: false, botMax: 340, userMax: 320, onLongPress: (_) {}),
+      session,
+    ));
+    await tester.runAsync(() => settle());
+    await tester.pump();
+
+    // A picture has no size until it is decoded, which takes real time.
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+    await tester.pump();
+    await tester.tap(find.descendant(of: find.byType(ImageGrid), matching: find.byType(Image)));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.runAsync(() => settle());
+    await tester.pump();
+    expect(asked, [
+      {'sessionId': 's-chief', 'path': 'charts/q3%20sales.png', 'preview': true},
+      {'sessionId': 's-chief', 'path': 'charts/q3%20sales.png'},
+    ]);
+
+    await tester.longPress(find.byType(InteractiveViewer));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.tap(find.text('Save to Photos'));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.runAsync(() => settle());
+    await tester.pump();
+
+    expect(gal.map((call) => call.method), ['requestPermission', 'putImageBytes']);
+    final saved = gal.last.arguments as Map<Object?, Object?>;
+    expect(saved['name'], 'q3 sales');
+    expect(saved['bytes'], base64Decode(_pixel));
+    expect(find.text('Saved to Photos'), findsWidgets);
+    await tester.pump(const Duration(seconds: 5));
+  });
 }

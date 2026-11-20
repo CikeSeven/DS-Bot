@@ -58,6 +58,7 @@ dependencies:
   dsbot_link_ffi:
     path: rust_builder
   flutter_rust_bridge: 2.13.0
+  gal: ^3.0.1
 
 dev_dependencies:
   flutter_test:
