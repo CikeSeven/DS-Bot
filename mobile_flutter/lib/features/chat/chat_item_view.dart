@@ -294,7 +294,7 @@ class ChatItemView extends StatelessWidget {
       final src = image.src.trim();
       if (_web.hasMatch(src)) {
         refs.add({'url': src});
-      } else if (files && src.isNotEmpty && !_scheme.hasMatch(src)) {
+      } else if (files && src.isNotEmpty && (_fileUrl.hasMatch(src) || !_scheme.hasMatch(src))) {
         refs.add({'path': src});
       } else {
         return null;
@@ -408,8 +408,10 @@ Object? _decode(String text) {
 
 final _web = RegExp(r'^https?://', caseSensitive: false);
 
-// A URL scheme other than a Windows drive letter: the image is no file to fetch.
+// A URL scheme other than a Windows drive letter: the image is no file to fetch,
+// unless it is a file: URL, which the computer reads as the path it names.
 final _scheme = RegExp(r'^(?![A-Za-z]:[\\/])[a-z][a-z\d+.-]*:', caseSensitive: false);
+final _fileUrl = RegExp(r'^file:', caseSensitive: false);
 
 String _platformName(String id) {
   for (final platform in SharedData.instance.imPlatforms) {

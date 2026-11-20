@@ -4,6 +4,8 @@
 // Text that goes on to another Session (a group, another Bot) may land in another folder,
 // so its relative file links are made absolute first.
 import { resolve } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import { expandHome } from './folders.js'
 
 // Code is left as written: a link there is an example, not a link.
 const CODE = /(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`)/g
@@ -29,8 +31,24 @@ function fileTarget(destination) {
 }
 
 // The path a Markdown link or image destination names, decoded; undefined for a URL.
+// Replies also name a file as a file: URL, or from the home folder (~/), as a shell
+// would; neither is a link DSH's chat opens.
 export function linkPath(destination) {
-  return fileTarget(String(destination))?.path
+  let text = String(destination).trim()
+  if (text.startsWith('<') && text.endsWith('>')) text = text.slice(1, -1)
+  if (/^file:/i.test(text)) return fileUrlPath(text)
+  const path = fileTarget(text)?.path
+  return path === undefined ? undefined : expandHome(path)
+}
+
+// A file: URL on another computer (file://server/…) is no file here.
+function fileUrlPath(url) {
+  try {
+    const path = fileURLToPath(new URL(url))
+    return /^[\\/]{2}/.test(path) || [...path].some(char => char.charCodeAt(0) < 32) ? undefined : path
+  } catch {
+    return undefined
+  }
 }
 
 function relativeFile(destination) {

@@ -6,6 +6,8 @@
 	<string>DS Bot uses the camera to scan the pairing code that your computer shows, and to take photos you send to a Bot.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>DS Bot asks you to unlock before it changes keys, secrets or capabilities on your computer.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>DS Bot saves the pictures you choose to your photo library.</string>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>DS Bot sends the photos you pick to your Bot.</string>
 	<key>CFBundleLocalizations</key>

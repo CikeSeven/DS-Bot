@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:dsbot_mobile/app/app_state.dart';
@@ -10,6 +11,7 @@ import 'package:dsbot_mobile/ui/i18n.dart';
 import 'package:dsbot_mobile/ui/markdown.dart';
 import 'package:dsbot_mobile/ui/theme.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_link.dart';
@@ -35,6 +37,14 @@ const _reply = {
     {'name': 'report.pdf', 'sessionId': 's-chief-1', 'seq': 9, 'index': 1},
   ],
 };
+
+// A reply that names a picture by a file: URL on the computer.
+const _fileUrlReply = {'kind': 'bot', 'seq': 10, 'time': 2, 'text': 'Here it is:\n\n![Plot](file:///home/me/out/plot.png)'};
+
+// A picture whose path has a space, written without angle brackets.
+const _spacedReply = {'kind': 'bot', 'seq': 11, 'time': 3, 'text': '![Sales](charts/q3 sales.png)'};
+
+Widget _page(Widget body) => MaterialApp(theme: buildTheme(Palette.of(dark: false)), home: Scaffold(body: body));
 
 Widget _host(Widget child, TeamSession session) => TeamScope(
       session: session,
@@ -68,6 +78,22 @@ void main() {
 
     await tester.pumpWidget(page(MarkdownText('See ![the chart](chart.png) here', images: (_) => null)));
     expect(find.textContaining('See the chart here', findRichText: true), findsOneWidget);
+  });
+
+  testWidgets('an <img> tag and a bare path with spaces are images too, but not in code', (tester) async {
+    final drawn = <String>[];
+    Widget? draw(List<MarkdownImage> images) {
+      drawn.addAll(images.map((image) => '${image.alt}|${image.src}'));
+      return const SizedBox();
+    }
+
+    await tester.pumpWidget(_page(MarkdownText(
+      '![My chart](/home/me/my chart.png)\n\n<img src="out/plot.png" alt="Plot" width="320">\n\n`![x](a b.png)`\n\n```\n<img src="kept.png">\n```',
+      images: draw,
+    )));
+    expect(drawn, ['My chart|/home/me/my%20chart.png', 'Plot|out/plot.png']);
+    expect(find.textContaining('![x](a b.png)', findRichText: true), findsOneWidget);
+    expect(find.textContaining('<img src="kept.png">'), findsOneWidget);
   });
 
   Future<(TeamSession, FakeLinkClient, List<Map<String, dynamic>>)> connect(WidgetTester tester, List<String> capabilities) async {
@@ -138,5 +164,62 @@ void main() {
     expect(find.byType(ImageGrid), findsNothing);
     expect(find.textContaining('Sales by month', findRichText: true), findsOneWidget);
     expect(find.byType(FileChip), findsNWidgets(2));
+  });
+
+  testWidgets('a picture named by a file: URL goes to the computer as written', (tester) async {
+    final (session, _, asked) = await connect(tester, ['images', 'image-preview', 'shown-images']);
+    await tester.pumpWidget(_host(
+      ChatItemView(row: const ChatRow(_fileUrlReply, 'r10', null), team: session.team!, sessionId: 's-chief', inRoom: false, flat: false, botMax: 340, userMax: 320, onLongPress: (_) {}),
+      session,
+    ));
+    await tester.runAsync(() => settle());
+    await tester.pump();
+
+    expect(asked, [{'sessionId': 's-chief', 'path': 'file:///home/me/out/plot.png', 'preview': true}]);
+    expect(find.byType(ImageGrid), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
+  testWidgets('a long press on a full-screen picture saves it to the photos', (tester) async {
+    final gal = <MethodCall>[];
+    final messenger = TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+    messenger.setMockMethodCallHandler(const MethodChannel('gal'), (call) async {
+      gal.add(call);
+      return call.method == 'requestPermission' ? true : null;
+    });
+    addTearDown(() => messenger.setMockMethodCallHandler(const MethodChannel('gal'), null));
+    final (session, _, asked) = await connect(tester, ['images', 'image-preview', 'shown-images']);
+    await tester.pumpWidget(_host(
+      ChatItemView(row: const ChatRow(_spacedReply, 'r11', null), team: session.team!, sessionId: 's-chief', inRoom: false, flat: false, botMax: 340, userMax: 320, onLongPress: (_) {}),
+      session,
+    ));
+    await tester.runAsync(() => settle());
+    await tester.pump();
+
+    // A picture has no size until it is decoded, which takes real time.
+    await tester.runAsync(() => Future<void>.delayed(const Duration(milliseconds: 200)));
+    await tester.pump();
+    await tester.tap(find.descendant(of: find.byType(ImageGrid), matching: find.byType(Image)));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.runAsync(() => settle());
+    await tester.pump();
+    expect(asked, [
+      {'sessionId': 's-chief', 'path': 'charts/q3%20sales.png', 'preview': true},
+      {'sessionId': 's-chief', 'path': 'charts/q3%20sales.png'},
+    ]);
+
+    await tester.longPress(find.byType(InteractiveViewer));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.tap(find.text('Save to Photos'));
+    await tester.pump(const Duration(milliseconds: 600));
+    await tester.runAsync(() => settle());
+    await tester.pump();
+
+    expect(gal.map((call) => call.method), ['requestPermission', 'putImageBytes']);
+    final saved = gal.last.arguments as Map<Object?, Object?>;
+    expect(saved['name'], 'q3 sales');
+    expect(saved['bytes'], base64Decode(_pixel));
+    expect(find.text('Saved to Photos'), findsWidgets);
+    await tester.pump(const Duration(seconds: 5));
   });
 }

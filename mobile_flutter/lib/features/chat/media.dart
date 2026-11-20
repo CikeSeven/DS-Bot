@@ -2,11 +2,15 @@
 // a photo opens full screen, and files read or saved onto the phone. A picture is a
 // message's attachment, an image file a turn presented or an image a reply's
 // Markdown names on the computer (`image` reads all three), or one on the web.
+// A long press on a full-screen photo saves it to the phone's photos.
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:gal/gal.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
@@ -259,6 +263,26 @@ class _PhotoViewerState extends State<_PhotoViewer> {
     );
   }
 
+  void _actions(Json ref) {
+    HapticFeedback.mediumImpact();
+    showActions(context, [
+      MenuAction(t('Save to Photos'), AppIcon.download, () => unawaited(_save(ref))),
+    ]);
+  }
+
+  // Gal asks for the photos permission itself, the first time.
+  Future<void> _save(Json ref) async {
+    try {
+      await savePhoto(widget.session, widget.sessionId, ref);
+      if (mounted) toast(context, t('Saved to Photos'));
+    } on GalException catch (error) {
+      if (!mounted) return;
+      toast(context, t(error.type == GalExceptionType.permissionDenied ? 'Allow DS Bot to add photos in Settings' : 'Could not save the picture'), error: true);
+    } on Object catch (error) {
+      if (mounted) toast(context, errorText(error), error: true);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final current = widget.refs[_at];
@@ -271,6 +295,7 @@ class _PhotoViewerState extends State<_PhotoViewer> {
           onPageChanged: (i) => setState(() => _at = i),
           itemBuilder: (context, i) => GestureDetector(
             onTap: () => Navigator.pop(context),
+            onLongPress: () => _actions(widget.refs[i]),
             onVerticalDragEnd: (details) {
               if ((details.primaryVelocity ?? 0).abs() > 600) Navigator.pop(context);
             },
@@ -293,6 +318,56 @@ class _PhotoViewerState extends State<_PhotoViewer> {
       ]),
     );
   }
+}
+
+/// Puts a picture in the phone's photos: a presented image file whole, as its save
+/// button does; others as the full-screen view gets them (the computer sends an image
+/// over 2 MiB as a JPEG of it).
+Future<void> savePhoto(TeamSession session, String sessionId, Json ref) async {
+  if (jInt(ref, 'seq') != null) {
+    final target = {'sessionId': jStr(ref, 'sessionId') ?? sessionId, 'seq': ref['seq'], 'index': jInt(ref, 'index') ?? 0};
+    final saved = await downloadFile(session.call, target, await getTemporaryDirectory());
+    try {
+      await Gal.putImage(saved.path);
+    } finally {
+      unawaited(File(saved.path).parent.delete(recursive: true).then((_) {}, onError: (_) {}));
+    }
+    return;
+  }
+  final url = webImageOf(ref);
+  final bytes = url != null ? await _webPhoto(url) : await loadImage(session, sessionId, ref, original: true);
+  await Gal.putImageBytes(bytes, name: _photoName(ref));
+}
+
+const _webPhotoMax = 32 * 1024 * 1024;
+
+Future<Uint8List> _webPhoto(String url) async {
+  final client = HttpClient()..connectionTimeout = const Duration(seconds: 20);
+  try {
+    final response = await (await client.getUrl(Uri.parse(url))).close().timeout(const Duration(seconds: 30));
+    if (response.statusCode != HttpStatus.ok) throw const FormatException('Image not available');
+    final bytes = BytesBuilder(copy: false);
+    await for (final chunk in response.timeout(const Duration(seconds: 30))) {
+      bytes.add(chunk);
+      if (bytes.length > _webPhotoMax) throw const FormatException('Image not available');
+    }
+    return bytes.takeBytes();
+  } finally {
+    client.close(force: true);
+  }
+}
+
+/// The picture's own file name, without its type: the photos app adds the type the
+/// bytes have.
+String _photoName(Json ref) {
+  var name = (jStr(ref, 'name') ?? jStr(ref, 'path') ?? jStr(ref, 'url') ?? '').split(RegExp(r'[?#]')).first.split(RegExp(r'[\\/]')).last;
+  try {
+    name = Uri.decodeComponent(name);
+  } on ArgumentError {
+    // A stray % stays as written.
+  }
+  name = name.replaceFirst(RegExp(r'\.[A-Za-z0-9]{1,5}$'), '').replaceAll(RegExp(r'[<>:"|?*\x00-\x1f]'), '').trim();
+  return name.isEmpty ? 'DS Bot' : name;
 }
 
 /// A file a message carries: open it to read, or save it onto the phone.

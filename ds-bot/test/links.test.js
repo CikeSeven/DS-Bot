@@ -1,7 +1,9 @@
 import assert from 'node:assert/strict'
 import { resolve } from 'node:path'
 import { test } from 'node:test'
-import { absoluteLinks } from '../src/host/links.js'
+import { homedir } from 'node:os'
+import { pathToFileURL } from 'node:url'
+import { absoluteLinks, linkPath } from '../src/host/links.js'
 
 const folder = resolve('/work/group folder')
 // The path DSH opens for a link, as its chat decodes the destination.
@@ -41,4 +43,16 @@ test('absolute paths, web links, anchors and code are left as they are', () => {
 test('only the links outside code change', () => {
   const text = 'Use `[x](x.md)` like [y](y.md).'
   assert.equal(absoluteLinks(text, folder), `Use \`[x](x.md)\` like [y](${full('y.md').replace(/ /g, '%20')}).`)
+})
+
+test('an image path is read from a file: URL or from the home folder too', () => {
+  const chart = resolve('/work/my chart.png')
+  assert.equal(linkPath(pathToFileURL(chart).href), chart)
+  assert.equal(linkPath(`<${pathToFileURL(chart).href}>`), chart)
+  assert.equal(linkPath('file://localhost/work/a.png'), resolve('/work/a.png'))
+  assert.equal(linkPath('~/Pictures/a.png'), resolve(homedir(), 'Pictures/a.png'))
+  assert.equal(linkPath('<out/my chart.png>'), 'out/my chart.png')
+  // A file on another computer, or a web address, is no path here.
+  assert.equal(linkPath('file://server/share/a.png'), undefined)
+  assert.equal(linkPath('https://example.com/a.png'), undefined)
 })

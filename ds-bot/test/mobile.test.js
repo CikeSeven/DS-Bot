@@ -4,6 +4,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { test } from 'node:test'
 import { createRuntime } from '../index.js'
 import { API_VERSION, CAPABILITIES, roomItems } from '../src/host/mobile.js'
@@ -633,6 +634,16 @@ test('image shows a Markdown image by its path, a relative one from the chat fol
   assert.equal((await call('image', { sessionId, path: `${dir}/my%20chart.png` })).ok, true)
   assert.equal((await call('image', { sessionId, path: `<${dir}/my chart.png>` })).ok, true)
 
+  // A file: URL, and a path from the home folder, as replies also write them.
+  assert.equal((await call('image', { sessionId, path: pathToFileURL(join(dir, 'my chart.png')).href })).ok, true)
+  const home = [process.env.HOME, process.env.USERPROFILE]
+  process.env.HOME = process.env.USERPROFILE = dir
+  try {
+    assert.equal((await call('image', { sessionId, path: '~/chart.png', preview: true })).ok, true)
+  } finally {
+    ;[process.env.HOME, process.env.USERPROFILE] = home
+  }
+
   rt.state.bots[chief].workDir = dir
   const relative = await call('image', { sessionId, path: 'chart.png', preview: true })
   assert.equal(relative.ok, true)
@@ -644,6 +655,7 @@ test('image shows a Markdown image by its path, a relative one from the chat fol
   }
   await refused({ sessionId, path: join(dir, 'notes.txt') }, 'bot/invalid')
   await refused({ sessionId, path: 'https://example.com/chart.png' }, 'bot/invalid')
+  await refused({ sessionId, path: 'file://server/share/chart.png' }, 'bot/invalid')
   await refused({ sessionId, path: join(dir, 'gone.png') }, 'bot/not-found')
   await refused({ sessionId: 's-unknown', path: join(dir, 'chart.png') }, 'bot/not-found')
   writeFileSync(join(rt.home, 'kept.png'), chart)

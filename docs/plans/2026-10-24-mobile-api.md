@@ -151,6 +151,14 @@ the existing whole-file response and its 16 MiB compatibility limit.
 - `preview: true` 和照片一样给长边 512 的 JPEG 预览。不带 `preview` 时，超过 2 MiB 的图片换成长边最多 2048 的 JPEG：手机连接一条消息最多 4 MiB（base64 之后）。缩不了的（大的 GIF、WebP）回 `bot/refused`。
 - 手机上，回复里的 Markdown 图片按原比例画在气泡里，http(s) 的网页图片由手机直接加载；`present` 交付的图片画成图，点开全屏，全屏里能保存原文件；其它交付的文件仍是文件卡片，点卡片就保存。电脑没有 `shown-images` 时手机照旧显示说明文字和文件卡片。
 
+### 本地图片的其它写法（2026-11-20）
+
+模型写本地图片不总是规范的 Markdown，这些写法以前在手机上只剩说明文字或「去电脑上看」：
+
+- `path` 也可以是 `file:` 地址（`file:///home/me/chart.png`、`file:///C:/Users/me/chart.png`），电脑按自己的系统换成路径；指向别的电脑的（`file://server/…`）回 `bot/invalid`。`~/` 开头的路径从电脑的主目录算起。手机把 `file:` 图片按原样交给 `image`，电脑没更新时回 `bot/invalid`，手机显示「去电脑上看」。
+- 手机在解析之前，把两种 CommonMark 当成文字的写法改成 Markdown 图片：路径里有空格却没加尖括号的 `![说明](/home/me/my chart.png)`（只认图片扩展名结尾的），和 HTML 的 `<img src="…" alt="…">`。代码块和行内代码里的照原样显示。
+- 全屏看图时长按图片，弹出「保存到相册」：`present` 交付的图片存原文件（和保存按钮一样），其余的存全屏里拿到的那份（超过 2 MiB 的是电脑缩过的 JPEG，网页图片由手机重新下载，最多 32 MiB）。第一次保存时系统会问权限；被拒绝时提示去系统设置里打开。
+
 ## 撤回消息（2026-11-16）
 
 能力 `recall`。行为见[撤回消息](2026-11-16-message-recall.md)。
