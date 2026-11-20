@@ -36,6 +36,12 @@ const _reply = {
   ],
 };
 
+// A reply that names a picture by a file: URL on the computer.
+const _fileUrlReply = {'kind': 'bot', 'seq': 10, 'time': 2, 'text': 'Here it is:\n\n![Plot](file:///home/me/out/plot.png)'};
+
+
+Widget _page(Widget body) => MaterialApp(theme: buildTheme(Palette.of(dark: false)), home: Scaffold(body: body));
+
 Widget _host(Widget child, TeamSession session) => TeamScope(
       session: session,
       child: MaterialApp(
@@ -68,6 +74,22 @@ void main() {
 
     await tester.pumpWidget(page(MarkdownText('See ![the chart](chart.png) here', images: (_) => null)));
     expect(find.textContaining('See the chart here', findRichText: true), findsOneWidget);
+  });
+
+  testWidgets('an <img> tag and a bare path with spaces are images too, but not in code', (tester) async {
+    final drawn = <String>[];
+    Widget? draw(List<MarkdownImage> images) {
+      drawn.addAll(images.map((image) => '${image.alt}|${image.src}'));
+      return const SizedBox();
+    }
+
+    await tester.pumpWidget(_page(MarkdownText(
+      '![My chart](/home/me/my chart.png)\n\n<img src="out/plot.png" alt="Plot" width="320">\n\n`![x](a b.png)`\n\n```\n<img src="kept.png">\n```',
+      images: draw,
+    )));
+    expect(drawn, ['My chart|/home/me/my%20chart.png', 'Plot|out/plot.png']);
+    expect(find.textContaining('![x](a b.png)', findRichText: true), findsOneWidget);
+    expect(find.textContaining('<img src="kept.png">'), findsOneWidget);
   });
 
   Future<(TeamSession, FakeLinkClient, List<Map<String, dynamic>>)> connect(WidgetTester tester, List<String> capabilities) async {
@@ -139,4 +161,19 @@ void main() {
     expect(find.textContaining('Sales by month', findRichText: true), findsOneWidget);
     expect(find.byType(FileChip), findsNWidgets(2));
   });
+
+  testWidgets('a picture named by a file: URL goes to the computer as written', (tester) async {
+    final (session, _, asked) = await connect(tester, ['images', 'image-preview', 'shown-images']);
+    await tester.pumpWidget(_host(
+      ChatItemView(row: const ChatRow(_fileUrlReply, 'r10', null), team: session.team!, sessionId: 's-chief', inRoom: false, flat: false, botMax: 340, userMax: 320, onLongPress: (_) {}),
+      session,
+    ));
+    await tester.runAsync(() => settle());
+    await tester.pump();
+
+    expect(asked, [{'sessionId': 's-chief', 'path': 'file:///home/me/out/plot.png', 'preview': true}]);
+    expect(find.byType(ImageGrid), findsOneWidget);
+    await tester.pump(const Duration(milliseconds: 1));
+  });
+
 }

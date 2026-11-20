@@ -1,7 +1,7 @@
 // Markdown for chat bubbles and readers: parsed with package:markdown (GitHub
 // flavor), drawn here so code, tables and CJK spacing look right on a phone.
 // Links open only for http(s) and mailto. Images show their alt text, unless the
-// caller draws them (`images`).
+// caller draws them (`images`); an <img> tag or a bare path with spaces counts too.
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,10 +17,43 @@ final Map<String, List<md.Node>> _cache = {};
 List<md.Node> _parse(String text) {
   final cached = _cache[text];
   if (cached != null) return cached;
-  final nodes = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored, encodeHtml: false).parseLines(text.split('\n'));
+  final nodes = md.Document(extensionSet: md.ExtensionSet.gitHubFlavored, encodeHtml: false).parseLines(_imagesAsMarkdown(text).split('\n'));
   if (_cache.length > 400) _cache.remove(_cache.keys.first);
   return _cache[text] = nodes;
 }
+
+// Code keeps its text: an image there is an example.
+final _code = RegExp(r'(```[\s\S]*?(?:```|$)|~~~[\s\S]*?(?:~~~|$)|`[^`\n]*`)');
+final _spacedImage = RegExp(r'!\[([^\]\n]*)\]\(\s*([^()<>"\n]*?\s[^()<>"\n]*?\.(?:png|jpe?g|gif|webp))\s*\)', caseSensitive: false);
+final _imgTag = RegExp(r'<img\b[^>]*>', caseSensitive: false);
+final _src = RegExp(r'''\bsrc\s*=\s*(?:"([^"<>\n]*)"|'([^'<>\n]*)')''', caseSensitive: false);
+final _alt = RegExp(r'''\balt\s*=\s*(?:"([^"\n]*)"|'([^'\n]*)')''', caseSensitive: false);
+
+/// Images as replies write them that CommonMark reads as text: a path with spaces
+/// left bare, and an HTML <img> tag (to size a picture). Both become Markdown images.
+String _imagesAsMarkdown(String text) {
+  if (!text.contains('![') && !text.toLowerCase().contains('<img')) return text;
+  final out = StringBuffer();
+  var at = 0;
+  for (final code in _code.allMatches(text)) {
+    out
+      ..write(_asImages(text.substring(at, code.start)))
+      ..write(code[0]);
+    at = code.end;
+  }
+  out.write(_asImages(text.substring(at)));
+  return out.toString();
+}
+
+String _asImages(String text) => text
+    .replaceAllMapped(_spacedImage, (match) => '![${match[1]}](<${match[2]!.trim()}>)')
+    .replaceAllMapped(_imgTag, (match) {
+      final src = _src.firstMatch(match[0]!);
+      final path = (src?[1] ?? src?[2])?.trim() ?? '';
+      if (path.isEmpty) return match[0]!;
+      final alt = _alt.firstMatch(match[0]!);
+      return '![${(alt?[1] ?? alt?[2] ?? '').replaceAll(RegExp(r'[\[\]]'), '')}](<$path>)';
+    });
 
 final _blockPattern = RegExp(r'(^|\n)\s*(```|~~~|\|.*\|)');
 
