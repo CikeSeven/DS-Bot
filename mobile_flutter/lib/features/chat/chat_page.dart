@@ -219,15 +219,15 @@ class _ChatPageState extends State<ChatPage> {
         ),
       ..._workRows(context, team, bot, room),
     ];
-    // Rows below the last part line are the current part's, the only ones a recall reaches.
-    final partStart = rows.lastIndexWhere((row) => row.kind == 'divider');
     final count = rows.length + foot.length + 1;
+    final rowIndexes = {for (final (index, row) in rows.indexed) row.key: foot.length + rows.length - 1 - index};
     final list = ListView.builder(
       controller: _scroll,
       reverse: true,
       keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
       padding: EdgeInsets.fromLTRB(12, barBottom + 8, 12, _dock + 8),
       itemCount: count,
+      findChildIndexCallback: (key) => key is ValueKey<String> ? rowIndexes[key.value] : null,
       itemBuilder: (context, index) {
         if (index < foot.length) return foot[foot.length - 1 - index];
         final i = index - foot.length;
@@ -237,19 +237,22 @@ class _ChatPageState extends State<ChatPage> {
             child: Center(
               child: chat.loadingOlder
                   ? SizedBox.square(dimension: 18, child: CircularProgressIndicator(strokeWidth: 2, color: p.ink3))
-                  : (chat.hasMore ? const SizedBox(height: 18) : Text(rows.isEmpty ? '' : t('Start of this chat'), style: TypeScale.caption.copyWith(color: p.ink3))),
+                  : (chat.hasMore
+                      ? TextButton(onPressed: chat.loadMore, child: Text(t('Load earlier')))
+                      : Text(rows.isEmpty ? '' : t('Start of this chat'), style: TypeScale.caption.copyWith(color: p.ink3))),
             ),
           );
         }
         final at = rows.length - 1 - i;
         final row = rows[at];
+        final part = jStr(row.item, 'sessionId') ?? chat.sessionId;
         return Padding(
           key: ValueKey(row.key),
           padding: const EdgeInsets.only(top: 6),
           child: ChatItemView(
             row: row,
             team: team,
-            sessionId: chat.sessionId,
+            sessionId: part,
             inRoom: room != null,
             flat: flat,
             botMax: botMax,
@@ -257,7 +260,7 @@ class _ChatPageState extends State<ChatPage> {
             admin: room?.admin,
             botId: bot?.id,
             latest: at == rows.length - 1,
-            onLongPress: (row) => _rowMenu(context, row, chat, current: at > partStart),
+            onLongPress: (row) => _rowMenu(context, row, chat, part: part),
             onRetry: chat.retry,
             onDiscard: chat.discard,
           ),
@@ -361,10 +364,10 @@ class _ChatPageState extends State<ChatPage> {
     _chat?.refresh();
   }
 
-  void _rowMenu(BuildContext context, ChatRow row, ChatSession chat, {bool current = false}) {
+  void _rowMenu(BuildContext context, ChatRow row, ChatSession chat, {required String part}) {
     final text = sourceTextOf(row.item);
     final seq = jInt(row.item, 'seq');
-    final canRecall = current && !_room && row.kind == 'user' && seq != null && jStr(row.item, 'localId') == null && TeamScope.read(context).has('recall');
+    final canRecall = part == chat.sessionId && !_room && row.kind == 'user' && seq != null && !row.local && TeamScope.read(context).has('recall');
     showActions(context, [
       if (text.isNotEmpty)
         MenuAction(t('Copy'), AppIcon.copy, () {
@@ -374,15 +377,15 @@ class _ChatPageState extends State<ChatPage> {
       if (text.isNotEmpty) MenuAction(t('Select text'), AppIcon.edit, () => showReader(context, text)),
       if (text.isNotEmpty) MenuAction(t('Quote'), AppIcon.quote, () => _composer.insert('${text.split('\n').map((line) => '> $line').join('\n')}\n')),
       if (text.isNotEmpty) MenuAction(t('Share'), AppIcon.share, () => SharePlus.instance.share(ShareParams(text: text))),
-      if (seq != null && row.kind != 'user') MenuAction(t('File changes'), AppIcon.diff, () => openChanges(context, chat.sessionId, seq)),
-      if (canRecall) MenuAction(t('Recall'), AppIcon.recall, () => unawaited(_recall(context, row, chat))),
+      if (seq != null && row.kind != 'user') MenuAction(t('File changes'), AppIcon.diff, () => openChanges(context, part, seq)),
+      if (canRecall) MenuAction(t('Recall'), AppIcon.recall, () => unawaited(_recall(context, row, chat, part))),
     ]);
   }
 
   /// Takes the message and everything after it out of the Bot's chat. Asks first
   /// only when the Bot changed files after it; the text goes back in the message box.
-  Future<void> _recall(BuildContext context, ChatRow row, ChatSession chat) async {
-    final target = {'botId': _id, 'sessionId': chat.sessionId, 'seq': jInt(row.item, 'seq'), 'time': ?jInt(row.item, 'time')};
+  Future<void> _recall(BuildContext context, ChatRow row, ChatSession chat, String part) async {
+    final target = {'botId': _id, 'sessionId': part, 'seq': jInt(row.item, 'seq'), 'time': ?jInt(row.item, 'time')};
     final check = await run(context, 'recall-check', target);
     if (check == null || !context.mounted) return;
     final name = TeamScope.read(context).team?.bot(_id)?.name ?? '';

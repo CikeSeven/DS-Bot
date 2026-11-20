@@ -151,6 +151,9 @@ test('the chat endpoint pages a Bot\'s own chat from the newest part back', asyn
   const first = (await call('chat', { botId: 'm1' })).value
   assert.deepEqual(first, {
     sessionId: 'm1c',
+    partSessionId: 'm1c',
+    firstSeq: 41,
+    lastSeq: 42,
     items: [{ kind: 'user', text: 'second', time: 70, seq: 41 }, { kind: 'bot', text: 'reply', time: 71, seq: 42 }],
     cursor: { part: 1, beforeSeq: 41 },
   })
@@ -160,7 +163,28 @@ test('the chat endpoint pages a Bot\'s own chat from the newest part back', asyn
   assert.deepEqual(second.cursor, { part: 0 })
   const third = (await call('chat', { botId: 'm1', cursor: second.cursor })).value
   assert.deepEqual([third.items, third.cursor], [[{ kind: 'user', text: 'long ago', time: 5, seq: 3 }], null])
+  assert.deepEqual([third.sessionId, third.partSessionId, third.firstSeq, third.lastSeq], ['m1c', 'm1', 3, 3])
   assert.equal((await call('chat', { botId: 'nobody' })).error.code, 'bot/not-found')
+})
+
+test('the phone can read new previews without a revision change, even after an empty new part', async (t) => {
+  const { ctx, call, stop } = start({
+    pages: { 'm1:end': { records: [{ event: { ...botMessage('Previous part', 30), seq: 7 } }], hasMore: false } },
+  })
+  t.after(stop)
+  let view = (await call('state', { chatTails: true })).value
+  for (let attempt = 0; view.chatTails?.m1 == null && attempt < 5; attempt += 1) {
+    const delta = (await call('state', { chatTails: true, since: view.revision, live: view.liveKey })).value
+    view = { ...view, ...delta }
+  }
+  assert.deepEqual(view.chatTails.m1, { lastAt: 30, preview: 'Previous part' })
+
+  const onEvent = ctx.listeners.get('session/event').find(listener => listener.name === 'rememberChatTail')
+  onEvent({ id: 'm1c' }, { ...botMessage('A new reply', 65), seq: 10 })
+  const next = (await call('state', { chatTails: true, since: view.revision, live: view.liveKey })).value
+  assert.equal(next.revision, view.revision)
+  assert.equal(next.unchanged, true)
+  assert.deepEqual(next.chatTails.m1, { lastAt: 65, preview: 'A new reply' })
 })
 
 test('a show_view call in a part reads back as a view row with its blueprint', async (t) => {

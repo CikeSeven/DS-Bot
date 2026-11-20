@@ -78,7 +78,10 @@ export function install(rt) {
     if (!listening()) return
     const botId = rt.chatOwners.get(session.id)
     if (botId === undefined) return
-    for (const item of rt.displayItems(session.id, [event])) publish('message', { botId, sessionId: session.id, item })
+    const items = rt.displayItems(session.id, [event], session)
+    for (const [index, item] of items.entries()) {
+      publish('message', { botId, sessionId: session.id, item, ...(items.length > 1 ? { index } : {}) })
+    }
     if (event.type === 'tool/call') live()
   })
 

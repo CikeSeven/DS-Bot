@@ -80,15 +80,24 @@ class ModelEntry {
 }
 
 class TeamState {
-  TeamState(this.raw);
+  TeamState(this.raw, {this.messagePreviews = const {}});
 
   final Json raw;
+  final Map<String, Json> messagePreviews;
 
   int get revision => jInt(raw, 'revision') ?? -1;
   bool get unchanged => jBool(raw, 'unchanged') ?? false;
   String? get liveKey => jStr(raw, 'liveKey');
 
-  late final List<Bot> bots = jMaps(raw, 'bots').map(Bot.new).toList();
+  late final List<Bot> bots = jMaps(raw, 'bots').map((bot) {
+    final id = jStr(bot, 'id');
+    final tails = jMap(raw, 'chatTails');
+    final tail = jMap(tails, id ?? '');
+    final saved = tails == null ? bot : (tail ?? const <String, dynamic>{});
+    final pushed = messagePreviews[id];
+    final latest = pushed != null && (jInt(pushed, 'lastAt') ?? 0) >= (jInt(saved, 'lastAt') ?? 0) ? pushed : saved;
+    return Bot({...bot, 'lastAt': jInt(latest, 'lastAt'), 'preview': jStr(latest, 'preview')});
+  }).toList();
   late final List<Room> rooms = jMaps(raw, 'rooms').map(Room.new).toList();
   late final Map<String, Bot> _botById = {for (final bot in bots) bot.id: bot};
   late final Map<String, Room> _roomById = {for (final room in rooms) room.id: room};
