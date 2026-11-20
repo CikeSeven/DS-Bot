@@ -89,16 +89,19 @@ npm ci
 npm run harness
 ```
 
-For the test bench, add the DeepSeek Harness checkout next to the plugin folder (this folder is ignored by Git):
+The Web smoke bench also uses the DSH CLI installed by `npm run harness`. The harness pins the Cordis packages shipped with DSH 0.2.2-alpha.2 because later prereleases changed the service records its Agent presets read.
+
+To run the bench against DSH source, build a checkout next to the plugin folder and set `DSH_HARNESS` to its path:
 
 ```sh
 cd ..
 git clone https://github.com/deepseek-ai/deepseek-harness.git
 git -C deepseek-harness checkout dsh-v0.2.2-alpha.2
-(cd deepseek-harness && pnpm install)
+(cd deepseek-harness && pnpm install && pnpm run build)
+export DSH_HARNESS="$PWD/deepseek-harness"
 ```
 
-If your DeepSeek Harness checkout is somewhere else, set `DSH_HARNESS` to its path. `DSH_HARNESS` also takes the place of `dev/harness/` for the unit tests and the linter.
+`DSH_HARNESS` also takes the place of `dev/harness/` for the unit tests and the linter.
 
 The `@deepseek-ai/*` packages are peer dependencies: in a real install, the DSH profile supplies them. `ds-bot/.npmrc` keeps npm from installing them into the plugin folder.
 
