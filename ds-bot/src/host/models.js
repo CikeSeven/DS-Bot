@@ -8,7 +8,11 @@ const CATALOG_TTL_MS = 10_000
 const ROUTE_WAIT_MS = 30_000
 // The DeepSeek account's sign-in grant (dsh-deepseek-account-platform).
 const ACCOUNT_RECORD = 'deepseek-account-platform/default'
-const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT'])
+// A stream that ends before its last event is a connection lost mid-response. DSH's
+// default retry codes leave it out, so a turn ended on it; it is retried wherever the
+// route's policy retries a dropped connection.
+const CUT_STREAM = 'STREAM_CLOSED'
+const TRANSIENT_LLM_CODES = new Set(['TRANSPORT', 'TIMEOUT', CUT_STREAM])
 
 function retryPolicyOf(ctx, provider) {
   try {
@@ -53,10 +57,15 @@ function abortedAssembler(failure) {
   return assembler
 }
 
+function retriesCode(policy, code) {
+  const codes = Array.isArray(policy.retryableCodes) ? policy.retryableCodes : []
+  return codes.includes(code) || (code === CUT_STREAM && codes.includes('TRANSPORT'))
+}
+
 function canRetryPolicy(policy, code, retry) {
   if (policy.mode === 'always') return true
   if (policy.mode !== 'normal') return false
-  return Array.isArray(policy.retryableCodes) && policy.retryableCodes.includes(code) && retry <= policy.maxRetries
+  return retriesCode(policy, code) && retry <= policy.maxRetries
 }
 
 // Auxiliary calls (memory, learning, handoff, steward, OCR, side chats, browser_task)
@@ -415,6 +424,28 @@ export function install(rt) {
   const lifetime = new AbortController()
   ctx.effect?.(() => () => { lifetime.abort() }, 'ds-bot: auxiliary llm retry')
   const assembleLlm = options => assembleLlmStream(ctx, options, { signal: lifetime.signal, backoff: rt.config?.llmRetryBackoff })
+
+  // dsh-llm-retry passes a Bot's cut stream on unless its route lists the code, and the
+  // turn would end there. The step runs again under the route's own budget and backoff.
+  // A route that lists it, or retries every failure (`always`), leaves it to dsh-llm-retry.
+  const cutRetries = new Map()
+  ctx.on?.('agent/request-error', async (payload, next) => {
+    const { agent, failure, retryPolicy: policy, signal } = payload
+    if (failure?.code !== CUT_STREAM || policy?.mode !== 'normal' || policy.retryableCodes?.includes(CUT_STREAM) || signal?.aborted) return next()
+    await rt.load()
+    if (!rt.isBotSession(agent?.id)) return next()
+    const step = `${payload.turn}:${payload.step}`
+    const last = cutRetries.get(agent.id)
+    const retry = last?.step === step ? last.retry + 1 : 1
+    const delayMs = canRetryPolicy(policy, CUT_STREAM, retry) ? retryDelayMs(policy, failure, retry, rt.config?.llmRetryBackoff, Math.random) : undefined
+    if (delayMs === undefined) {
+      cutRetries.delete(agent.id)
+      return next()
+    }
+    cutRetries.set(agent.id, { step, retry })
+    if (!await waitRetryDelay(delayMs, signal ? AbortSignal.any([signal, lifetime.signal]) : lifetime.signal)) return undefined
+    return { kind: 'retry' }
+  })
 
   Object.assign(rt, {
     catalog, cachedCatalog: () => answerable(catalogCache.value), cachedDefault: () => pickDefault(catalogCache.value),

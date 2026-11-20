@@ -28,6 +28,7 @@ DS Bot 是 DSH 插件，只能用 DSH 公开的接口。有些地方 DSH 的设�
 | C13 | 10-14 | #37，PR #168 | 预设是全局或按会话选的，插件不能只给 Bot 会话换掉 PTC 的工具展示、保留用户其余配置 | DS Bot 新建的会话一律用 standard 预设，用户给 DSH 选的预设（包括自定义组合）不用于 Bot | 用户自定义预设里的插件不会出现在 Bot 里 | 每个 Bot 可选自己的 harness（愿景第 9 条），默认 standard |
 | C14 | 10-20 | #362，PR #363 | DSH 网页前端的 Windows 标题栏布局只有不透明一种，没有让窗口材质透出侧栏的接口；桌面模式（`data-platform`）要 DSH Desktop 的原生键盘桥 | 桌面应用只标 `data-windows-titlebar`（DSH 网页前端自己的标题栏布局），页面留在网页模式。Windows 11 上 `app/src/mica.css` 用 DSH 的私有类名让 Mica 透出侧栏；`check-packed` 检查每条规则还能找到元素 | 升级锁定的 DSH 时类名或结构可能变；macOS 暂时保留系统标题栏 | 自己的界面接着做时，窗口外框由应用自己画 |
 | C15 | 10-22 | #398 | DeepSeek 账号由 DSH 的账号插件管理，登录、退出的操作和文案都在它注入的条目里；DS Bot 没有自己的账号界面 | Bot 模式的账号菜单借用这个条目：账号插件在、且已登录时显示「退出登录」，确认文案和退出操作都用插件自己的 | 账号插件改了条目或文案的结构，这一项就不显示；文案跟着 DSH 走，不是 DS Bot 的 | DS Bot 自己的前端管理账号的登录和退出 |
+| C16 | 11-20 | — | DSH 默认的重试代码（`EMPTY_RESPONSE`、`RATE_LIMIT`、`SERVER`、`TIMEOUT`、`TRANSPORT`）里没有 `STREAM_CLOSED`：模型流在最后一个事件之前结束，也就是连接在回复中途断了。`dsh-llm-retry` 不重试它，Bot 这一轮直接失败 | `models.js` 在 `agent/request-error` 里接住 Bot 会话的 `STREAM_CLOSED`：线路的策略是 normal 且会重试 `TRANSPORT` 时，按这个策略的次数和退避重跑这一步；策略自己列了这个代码，或者是 always，就交给 `dsh-llm-retry`。Bot 的辅助调用（`assembleLlmStream`）同样按断线处理 | 这种重试不写 `llm/retry` 事件：等待时 DSH 界面不显示在重试，用量统计里被切断的那次尝试会被重跑的那次盖掉；Bot 会话以外（用户自己的会话、Bot 派出的子代理）仍会中断 | 向 DSH 提出把 `STREAM_CLOSED` 加进默认重试代码；加进去以后删掉这段 |
 
 ## 记录规则
 

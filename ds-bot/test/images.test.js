@@ -105,4 +105,25 @@ test('assembleLlmStream forwards lifetime disposal signal to in-flight streams a
   assert.equal(disabled.finish.kind, 'error')
 })
 
-
+test('assembleLlmStream retries a stream cut mid-response wherever the route retries a dropped connection', async () => {
+  const cut = async (retryableCodes) => {
+    let calls = 0
+    const assembler = await assembleLlmStream({
+      llm: {
+        providerRetryPolicy: () => ({ mode: 'normal', maxRetries: 2, retryableCodes, initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 }),
+        async *stream() {
+          calls += 1
+          yield { type: 'text-delta', index: 0, text: calls === 1 ? 'Half an ans' : 'A whole answer.' }
+          if (calls === 1) {
+            yield { type: 'finish', reason: { kind: 'error', failure: { code: 'STREAM_CLOSED', message: 'DeepSeek Messages stream ended before message_stop' } } }
+            return
+          }
+          yield { type: 'finish', reason: { kind: 'stop' } }
+        },
+      },
+    }, { provider: 'deepseek', model: 'v4', messages: [] })
+    return { calls, finish: assembler.finish.kind }
+  }
+  assert.deepEqual(await cut(['TRANSPORT']), { calls: 2, finish: 'stop' })
+  assert.deepEqual(await cut(['SERVER']), { calls: 1, finish: 'error' })
+})

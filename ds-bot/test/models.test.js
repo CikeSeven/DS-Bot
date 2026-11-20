@@ -389,3 +389,45 @@ test('a Bot on the default model with its own thinking level leaves the default 
   await rt.applyModel({ id: 'b1', model: 'deepseek/v4-flash', effort: 'low' })
   assert.deepEqual(current(), fallback)
 })
+
+// DSH's default normal policy, with backoff short enough for a test.
+const ROUTE_POLICY = { mode: 'normal', maxRetries: 2, retryableCodes: ['EMPTY_RESPONSE', 'RATE_LIMIT', 'SERVER', 'TIMEOUT', 'TRANSPORT'], initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 }
+
+function cutStreams() {
+  const { rt, listeners } = bench()
+  rt.load = async () => {}
+  rt.isBotSession = id => id === 'bot-chat'
+  const passed = Symbol('passed on')
+  const fail = ({ session = 'bot-chat', turn = 1, step = 0, code = 'STREAM_CLOSED', policy = ROUTE_POLICY, signal = AbortSignal.timeout(60_000) } = {}) =>
+    listeners.get('agent/request-error')({ agent: { id: session }, turn, step, provider: 'deepseek', failure: { code, message: 'DeepSeek Messages stream ended before message_stop' }, retryPolicy: policy, signal }, async () => passed)
+  return { fail, passed }
+}
+
+test('a Bot step whose stream is cut mid-response runs again within the route budget', async () => {
+  const { fail, passed } = cutStreams()
+  assert.deepEqual(await fail(), { kind: 'retry' })
+  assert.deepEqual(await fail(), { kind: 'retry' })
+  assert.equal(await fail(), passed)
+  // The next step that is cut has a budget of its own.
+  assert.deepEqual(await fail({ step: 1 }), { kind: 'retry' })
+})
+
+test('a cut stream is left alone outside Bot sessions, on other failures, and where the route says so', async () => {
+  const { fail, passed } = cutStreams()
+  assert.equal(await fail({ session: 'user-session' }), passed)
+  assert.equal(await fail({ code: 'AUTH' }), passed)
+  assert.equal(await fail({ policy: null }), passed)
+  assert.equal(await fail({ policy: { mode: 'disabled' } }), passed)
+  assert.equal(await fail({ policy: { mode: 'always', initialDelayMs: 1, maxDelayMs: 5, jitterRatio: 0 } }), passed)
+  // A route that lists the code leaves it to dsh-llm-retry; one without transport retries retries neither.
+  assert.equal(await fail({ policy: { ...ROUTE_POLICY, retryableCodes: ['STREAM_CLOSED'] } }), passed)
+  assert.equal(await fail({ policy: { ...ROUTE_POLICY, retryableCodes: ['SERVER'] } }), passed)
+})
+
+test('a turn stopped while its cut step waits is not run again', async () => {
+  const { fail } = cutStreams()
+  const stop = new AbortController()
+  const waiting = fail({ policy: { ...ROUTE_POLICY, initialDelayMs: 60_000, maxDelayMs: 60_000 }, signal: stop.signal })
+  stop.abort()
+  assert.equal(await waiting, undefined)
+})
